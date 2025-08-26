@@ -1,0 +1,141 @@
+import requests
+import os
+import time
+
+class GitHubApiClient:
+    def __init__(self, token):
+        self.base_url = "https://api.github.com"
+        self.headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        self.max_retries = 5
+        self.initial_backoff_seconds = 1
+
+    def _make_request(self, url, params=None):
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.get(url, headers=self.headers, params=params)
+                
+                # Check for rate limit
+                if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers and int(response.headers['X-RateLimit-Remaining']) == 0:
+                    reset_time = int(response.headers['X-RateLimit-Reset'])
+                    sleep_duration = max(0, reset_time - time.time()) + 5 # Add 5 seconds buffer
+                    print(f"Rate limit exceeded. Sleeping for {sleep_duration:.2f} seconds until {time.ctime(reset_time)}.")
+                    time.sleep(sleep_duration)
+                    continue # Retry after sleeping
+
+                response.raise_for_status()  # Raise an exception for HTTP errors (e.g., 4xx, 5xx)
+                return response
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code in [500, 502, 503, 504]: # Server errors, often transient
+                    if attempt < self.max_retries - 1:
+                        sleep_time = self.initial_backoff_seconds * (2 ** attempt)
+                        print(f"Server error ({e.response.status_code}). Retrying in {sleep_time:.2f} seconds... (Attempt {attempt + 1}/{self.max_retries})")
+                        time.sleep(sleep_time)
+                    else:
+                        print(f"Server error ({e.response.status_code}). Max retries reached. Giving up.")
+                        raise
+                else:
+                    # For other HTTP errors (e.g., 404 Not Found, 400 Bad Request), don't retry
+                    raise
+            except requests.exceptions.ConnectionError as e:
+                if attempt < self.max_retries - 1:
+                    sleep_time = self.initial_backoff_seconds * (2 ** attempt)
+                    print(f"Connection error. Retrying in {sleep_time:.2f} seconds... (Attempt {attempt + 1}/{self.max_retries})")
+                    time.sleep(sleep_time)
+                else:
+                    print(f"Connection error. Max retries reached. Giving up.")
+                    raise
+            except Exception as e:
+                print(f"An unexpected error occurred: {e}")
+                raise
+        
+        # This part should ideally not be reached if max_retries is handled correctly
+        raise Exception("Failed to make request after multiple retries.")
+
+    def get_workflow_runs(self, owner, repo, workflow_id, branch=None, created_after=None, created_before=None):
+        url = f"{self.base_url}/repos/{owner}/{repo}/actions/workflows/{workflow_id}/runs"
+        params = {"per_page": 100}  # Max per_page for pagination
+        if branch: 
+            params["branch"] = branch
+        # Build created filter supporting combined ranges when both are provided
+        if created_after and created_before:
+            params["created"] = f"{created_after}..{created_before}"
+        elif created_after:
+            params["created"] = f">={created_after}"
+        elif created_before:
+            params["created"] = f"<={created_before}"
+
+        all_runs = []
+        while url:
+            response = self._make_request(url, params=params)
+            data = response.json()
+            all_runs.extend(data.get("workflow_runs", []))
+            # Check for next page
+            if 'next' in response.links:
+                url = response.links['next']['url']
+                params = None # params are already in the next url
+            else:
+                url = None
+        return all_runs
+
+    def get_jobs_for_run(self, owner, repo, run_id):
+        url = f"{self.base_url}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
+        params = {"per_page": 100}
+        
+        all_jobs = []
+        while url:
+            response = self._make_request(url, params=params)
+            data = response.json()
+            all_jobs.extend(data.get("jobs", []))
+            # Check for next page
+            if 'next' in response.links:
+                url = response.links['next']['url']
+                params = None
+            else:
+                url = None
+        return all_jobs
+
+    def get_job_details(self, owner, repo, job_id):
+        # The job details are usually included when fetching jobs for a run.
+        # This method might be redundant if we always fetch jobs via get_jobs_for_run.
+        # However, if there's a need to fetch a single job's details, this is the endpoint.
+        url = f"{self.base_url}/repos/{owner}/{repo}/actions/jobs/{job_id}"
+        response = self._make_request(url)
+        return response.json()
+
+if __name__ == '__main__':
+    # Example Usage (replace with your actual token, owner, repo, workflow_id)
+    # It's recommended to load the token from environment variables or a .env file
+    # For this example, we'll assume it's set as an environment variable.
+    github_token = os.getenv("GITHUB_TOKEN")
+    if not github_token:
+        print("Please set the GITHUB_TOKEN environment variable.")
+    else:
+        client = GitHubApiClient(github_token)
+        owner = "octocat"
+        repo = "Spoon-Knife"
+        workflow_id = "blank.yml" # Or the workflow ID number
+
+        print(f"Fetching workflow runs for {owner}/{repo}/{workflow_id}...")
+        try:
+            runs = client.get_workflow_runs(owner, repo, workflow_id, created_after="2024-01-01T00:00:00Z")
+            print(f"Found {len(runs)} workflow runs.")
+            if runs:
+                first_run_id = runs[0]["id"]
+                print(f"Fetching jobs for run ID: {first_run_id}...")
+                jobs = client.get_jobs_for_run(owner, repo, first_run_id)
+                print(f"Found {len(jobs)} jobs for run {first_run_id}.")
+                if jobs:
+                    first_job_id = jobs[0]["id"]
+                    print(f"Fetching details for job ID: {first_job_id}...")
+                    job_details = client.get_job_details(owner, repo, first_job_id)
+                    print(f"Job details for {first_job_id}: {job_details.get('name')}")
+        except requests.exceptions.RequestException as e:
+            print(f"An API error occurred: {e}")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
+
+
