@@ -1,10 +1,11 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import os
-import shutil
 
+from app import app
+from database import GHADatabase
 from github_api_client import GitHubApiClient
 from data_models import WorkflowRun, Job, Step
 from data_collector import DataCollector
@@ -13,19 +14,45 @@ from stats_calculator import StatsCalculator
 class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
 
     def setUp(self):
+        self.db_path = "test_gha_metrics.db"
+        self.db_patcher = patch('app.DB_PATH', self.db_path)
+        self.db_patcher.start()
+
+        if os.path.exists(self.db_path):
+            os.remove(self.db_path)
+
+        self.db = GHADatabase(db_path=self.db_path)
+        self.db.connect()
+        self.db.initialize_schema()
+
+        self.test_app = app.test_client()
+        app.config['TESTING'] = True
+
         self.token = "test_token"
         self.owner = "test_owner"
         self.repo = "test_repo"
         self.workflow_id = "test_workflow.yml"
-        self.client = GitHubApiClient(self.token)
-        self.cache_dir = "./test_cache"
-        self.collector = DataCollector(self.client, cache_dir=self.cache_dir)
+        self.api_client = GitHubApiClient(self.token)
         self.calculator = StatsCalculator()
-        os.makedirs(self.cache_dir, exist_ok=True)
 
     def tearDown(self):
-        if os.path.exists(self.cache_dir):
-            shutil.rmtree(self.cache_dir)
+        self.db.close()
+        self.db_patcher.stop()
+        if os.path.exists(self.db_path):
+            os.remove(self.db_path)
+
+    def _create_test_run(self, run_id, created_at, conclusion, duration_ms, jobs=None):
+        if jobs:
+            for job in jobs:
+                job.workflow_run_id = run_id
+        run = WorkflowRun(
+            id=run_id, name="CI", status="completed", conclusion=conclusion,
+            created_at=created_at, updated_at=created_at + timedelta(minutes=5),
+            event="push", head_branch="main", run_number=run_id,
+            duration_ms=duration_ms, jobs=jobs or []
+        )
+        self.db.save_workflow_run(run, self.owner, self.repo, self.workflow_id)
+        return run
 
     @patch("requests.get")
     def test_get_workflow_runs(self, mock_get):
@@ -39,7 +66,7 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
         mock_response.links = {}
         mock_get.return_value = mock_response
 
-        runs = self.client.get_workflow_runs(self.owner, self.repo, self.workflow_id)
+        runs = self.api_client.get_workflow_runs(self.owner, self.repo, self.workflow_id)
         self.assertEqual(len(runs), 2)
         self.assertEqual(runs[0]["id"], 1)
         self.assertEqual(runs[1]["conclusion"], "failure")
@@ -56,7 +83,7 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
         mock_response.links = {}
         mock_get.return_value = mock_response
 
-        jobs = self.client.get_jobs_for_run(self.owner, self.repo, 1)
+        jobs = self.api_client.get_jobs_for_run(self.owner, self.repo, 1)
         self.assertEqual(len(jobs), 2)
         self.assertEqual(jobs[0]["id"], 101)
         self.assertEqual(jobs[1]["name"], "test")
@@ -76,21 +103,22 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
              "labels": ["self-hosted", "linux", "node:16", "os:ubuntu-latest"] # Example matrix labels
             }
         ]
-
+        
+        collector = DataCollector(self.api_client, self.db)
+        
         start_date = datetime(2024, 1, 1)
         end_date = datetime(2024, 1, 2)
-        collected_runs = self.collector.collect_workflow_data(
+        runs_collected_count = collector.collect_workflow_data(
             self.owner, self.repo, self.workflow_id, start_date=start_date, end_date=end_date
         )
 
-        self.assertEqual(len(collected_runs), 1)
-        self.assertEqual(collected_runs[0].id, 1)
-        self.assertEqual(len(collected_runs[0].jobs), 1)
-        self.assertEqual(collected_runs[0].jobs[0].id, 101)
-        self.assertEqual(len(collected_runs[0].jobs[0].steps), 2)
-        self.assertEqual(collected_runs[0].jobs[0].steps[0].name, "Checkout")
-        self.assertIsNotNone(collected_runs[0].jobs[0].matrix_config)
-        self.assertEqual(collected_runs[0].jobs[0].matrix_config["node"], "16")
+        self.assertEqual(runs_collected_count, 1)
+
+        # Verify data was written to the database
+        runs_from_db = self.db.get_workflow_runs(self.owner, self.repo, self.workflow_id)
+        self.assertEqual(len(runs_from_db), 1)
+        self.assertEqual(runs_from_db[0]['id'], 1)
+        self.assertEqual(runs_from_db[0]['conclusion'], 'success')
 
     def test_calculate_run_statistics(self):
         runs = [
@@ -155,41 +183,67 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
         self.assertEqual(metrics[windows_node_14_key]["total_runs"], 1)
         self.assertEqual(metrics[windows_node_14_key]["failed_runs"], 1)
 
-    @patch.object(DataCollector, '_load_from_cache')
-    @patch.object(DataCollector, '_save_to_cache')
-    @patch.object(GitHubApiClient, "get_workflow_runs")
-    @patch.object(GitHubApiClient, "get_jobs_for_run")
-    def test_data_collector_caching(self, mock_get_jobs, mock_get_runs, mock_save_to_cache, mock_load_from_cache):
-        # Test cache hit
-        mock_load_from_cache.return_value = [MagicMock(spec=WorkflowRun)] # Return a dummy WorkflowRun object
-        
-        start_date = datetime(2024, 1, 1)
-        end_date = datetime(2024, 1, 2)
-        collected_runs = self.collector.collect_workflow_data(
-            self.owner, self.repo, self.workflow_id, start_date=start_date, end_date=end_date
-        )
-        mock_load_from_cache.assert_called_once()
-        mock_get_runs.assert_not_called() # Should not call API if cache hit
-        mock_save_to_cache.assert_not_called()
-        self.assertEqual(len(collected_runs), 1)
+    def test_api_trends(self):
+        # Day 1 data
+        self._create_test_run(1, datetime(2024, 1, 1, 10, 0), "success", 10000) # 10s
+        self._create_test_run(2, datetime(2024, 1, 1, 11, 0), "success", 20000) # 20s
+        self._create_test_run(3, datetime(2024, 1, 1, 12, 0), "failure", 5000)   # 5s
+        # Day 2 data
+        self._create_test_run(4, datetime(2024, 1, 2, 10, 0), "success", 30000) # 30s
 
-        # Test cache miss and subsequent save
-        mock_load_from_cache.reset_mock()
-        mock_load_from_cache.return_value = None # Simulate cache miss
-        mock_get_runs.return_value = [
-            {"id": 1, "name": "CI", "status": "completed", "conclusion": "success", "created_at": "2024-01-01T10:00:00Z", "updated_at": "2024-01-01T10:05:00Z", "event": "push", "head_branch": "main", "run_number": 1}
-        ]
-        mock_get_jobs.return_value = [
-            {"id": 101, "name": "build", "status": "completed", "conclusion": "success", "started_at": "2024-01-01T10:00:10Z", "completed_at": "2024-01-01T10:02:00Z", "workflow_run_id": 1, "steps": []}
-        ]
-
-        collected_runs = self.collector.collect_workflow_data(
-            self.owner, self.repo, self.workflow_id, start_date=start_date, end_date=end_date
+        response = self.test_app.get(
+            f'/api/trends?owner={self.owner}&repo={self.repo}&workflow_id={self.workflow_id}&period=day'
         )
-        mock_load_from_cache.assert_called_once()
-        mock_get_runs.assert_called_once()
-        mock_save_to_cache.assert_called_once()
-        self.assertEqual(len(collected_runs), 1)
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), 2)
+
+        day1_data = data[0]
+        self.assertEqual(day1_data['period_start'], '2024-01-01')
+        self.assertEqual(day1_data['total_runs'], 3)
+        self.assertEqual(day1_data['successful_runs'], 2)
+        # success durations: [10000, 20000]. p50=15000, p95=19500, p99=19900
+        self.assertEqual(day1_data['p50_duration_ms'], 15000)
+        self.assertEqual(day1_data['p95_duration_ms'], 19500)
+        self.assertEqual(day1_data['p99_duration_ms'], 19900)
+
+        day2_data = data[1]
+        self.assertEqual(day2_data['period_start'], '2024-01-02')
+        self.assertEqual(day2_data['total_runs'], 1)
+        # with one data point, percentiles are just the value itself
+        self.assertEqual(day2_data['p50_duration_ms'], 30000)
+        self.assertEqual(day2_data['p95_duration_ms'], 30000)
+
+    def test_api_jobs(self):
+        start_date = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+        end_date = datetime(2024, 1, 2, 0, 0, tzinfo=timezone.utc)
+
+        job1 = Job(id=101, name="build", status="completed", conclusion="success", started_at=start_date, completed_at=start_date + timedelta(seconds=10), workflow_run_id=1)
+        job2 = Job(id=102, name="test", status="completed", conclusion="success", started_at=start_date, completed_at=start_date + timedelta(seconds=20), workflow_run_id=1)
+        self._create_test_run(1, start_date, "success", 30000, jobs=[job1, job2])
+
+        job3 = Job(id=201, name="build", status="completed", conclusion="success", started_at=start_date, completed_at=start_date + timedelta(seconds=12), workflow_run_id=2)
+        job4 = Job(id=202, name="test", status="completed", conclusion="failure", started_at=start_date, completed_at=start_date + timedelta(seconds=5), workflow_run_id=2)
+        self._create_test_run(2, start_date + timedelta(hours=1), "failure", 20000, jobs=[job3, job4])
+
+        response = self.test_app.get(
+            f'/api/jobs?owner={self.owner}&repo={self.repo}&workflow_id={self.workflow_id}'
+            f'&start_date={start_date.isoformat()}&end_date={end_date.isoformat()}'
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.get_json()
+        self.assertEqual(len(data), 2) # build and test jobs
+
+        build_job_data = next(item for item in data if item["job_name"] == "build")
+        test_job_data = next(item for item in data if item["job_name"] == "test")
+
+        self.assertEqual(build_job_data['total_runs'], 2)
+        self.assertEqual(build_job_data['success_rate'], 100.0)
+        self.assertEqual(build_job_data['p95_duration_ms'], 11800) # np.percentile([10000, 12000], 95)
+
+        self.assertEqual(test_job_data['total_runs'], 2)
+        self.assertEqual(test_job_data['success_rate'], 50.0)
+        self.assertEqual(test_job_data['p95_duration_ms'], 20000) # np.percentile([20000], 95)
 
 if __name__ == "__main__":
     unittest.main()
