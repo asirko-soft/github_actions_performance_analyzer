@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, render_template
 from datetime import datetime
 from typing import Optional
 
@@ -25,8 +25,8 @@ def parse_date(date_str: Optional[str]) -> Optional[datetime]:
         return None
 
 @app.route('/')
-def index():
-    return "GitHub Actions Performance Analyzer API is running."
+def dashboard():
+    return render_template('dashboard.html')
 
 @app.route('/api/workflows', methods=['GET'])
 def get_workflows():
