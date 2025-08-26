@@ -1,6 +1,7 @@
 import sqlite3
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import json
+from datetime import datetime
 
 from data_models import WorkflowRun
 
@@ -28,6 +29,7 @@ class GHADatabase:
         if self.conn is None:
             try:
                 self.conn = sqlite3.connect(self.db_path)
+                self.conn.row_factory = sqlite3.Row # Return rows as dict-like objects
                 # Enable foreign key support
                 self.conn.execute("PRAGMA foreign_keys = 1")
             except sqlite3.Error as e:
@@ -178,6 +180,93 @@ class GHADatabase:
             print(f"Database error during clear_all_data: {e}")
             self.conn.rollback()
             raise
+
+    def get_workflow_runs(self, owner: str, repo: str, workflow_id: str,
+                          start_date: Optional[datetime] = None,
+                          end_date: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves workflow runs from the database with optional date filtering.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: Optional start date for filtering.
+        :param end_date: Optional end date for filtering.
+        :return: A list of workflow runs, where each run is a dictionary.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = "SELECT * FROM workflows WHERE owner = ? AND repo = ? AND workflow_id = ?"
+        params = [owner, repo, workflow_id]
+
+        if start_date:
+            query += " AND created_at >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND created_at <= ?"
+            params.append(end_date)
+
+        query += " ORDER BY created_at DESC"
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_time_series_metrics(self, owner: str, repo: str, workflow_id: str,
+                                start_date: Optional[datetime] = None,
+                                end_date: Optional[datetime] = None,
+                                period: str = 'day') -> List[Dict[str, Any]]:
+        """
+        Retrieves time-series aggregated metrics for workflow runs.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: Optional start date for filtering.
+        :param end_date: Optional end date for filtering.
+        :param period: The time period to group by ('day' or 'week').
+        :return: A list of aggregated metrics, where each item is a dictionary.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        if period == 'day':
+            date_group = "strftime('%Y-%m-%d', created_at)"
+        elif period == 'week':
+            # Using %Y-%W for year and week number (Monday as first day)
+            date_group = "strftime('%Y-%W', created_at)"
+        else:
+            raise ValueError("Invalid period specified. Must be 'day' or 'week'.")
+
+        query = f"""
+            SELECT
+                {date_group} as period_start,
+                COUNT(*) as total_runs,
+                SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                SUM(CASE WHEN conclusion = 'failure' THEN 1 ELSE 0 END) as failed_runs,
+                SUM(CASE WHEN conclusion = 'cancelled' THEN 1 ELSE 0 END) as cancelled_runs,
+                AVG(duration_ms) as avg_duration_ms,
+                AVG(CASE WHEN conclusion = 'success' THEN duration_ms END) as avg_success_duration_ms
+            FROM workflows
+            WHERE owner = ? AND repo = ? AND workflow_id = ?
+        """
+        params = [owner, repo, workflow_id]
+
+        if start_date:
+            query += " AND created_at >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND created_at <= ?"
+            params.append(end_date)
+
+        query += f" GROUP BY period_start ORDER BY period_start ASC"
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
 
 if __name__ == '__main__':
     # Example usage: create and initialize the database

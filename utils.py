@@ -1,5 +1,4 @@
 from typing import Optional, Union
-import math
 
 
 def format_duration_hms(duration_ms: Optional[Union[int, float]]) -> str:
@@ -40,23 +39,5 @@ def add_humanized_duration_fields(stats: dict, keys: list) -> dict:
         h_key = k.replace("_ms", "_hms") if k.endswith("_ms") else f"{k}_hms"
         stats[h_key] = format_duration_hms(stats.get(k))
     return stats
-
-
-def percentile(sorted_values, p: float) -> Optional[float]:
-    """Compute percentile p (0-100) from a pre-sorted list using linear interpolation."""
-    if not sorted_values:
-        return None
-    if p <= 0:
-        return float(sorted_values[0])
-    if p >= 100:
-        return float(sorted_values[-1])
-    k = (len(sorted_values) - 1) * (p / 100.0)
-    f = math.floor(k)
-    c = math.ceil(k)
-    if f == c:
-        return float(sorted_values[int(k)])
-    d0 = sorted_values[f] * (c - k)
-    d1 = sorted_values[c] * (k - f)
-    return float(d0 + d1)
 
 

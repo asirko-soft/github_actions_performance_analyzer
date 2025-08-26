@@ -1,8 +1,8 @@
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Union
 from collections import defaultdict
+import numpy as np
 from data_models import WorkflowRun, Job, Step, PerformanceMetrics
-from utils import percentile
 
 class StatsCalculator:
     def calculate_run_statistics(self, workflow_runs: List[WorkflowRun]) -> PerformanceMetrics:
@@ -49,15 +49,12 @@ class StatsCalculator:
 
         # Success min/max/percentiles
         if success_durations:
-            success_durations.sort()
-            metrics.success_min_duration_ms = float(success_durations[0])
-            metrics.success_max_duration_ms = float(success_durations[-1])
-            p50 = percentile(success_durations, 50)
-            p90 = percentile(success_durations, 90)
-            p95 = percentile(success_durations, 95)
-            metrics.success_p50_duration_ms = p50 if p50 is not None else 0.0
-            metrics.success_p90_duration_ms = p90 if p90 is not None else 0.0
-            metrics.success_p95_duration_ms = p95 if p95 is not None else 0.0
+            metrics.success_min_duration_ms = float(min(success_durations))
+            metrics.success_max_duration_ms = float(max(success_durations))
+            p50, p90, p95 = np.percentile(success_durations, [50, 90, 95])
+            metrics.success_p50_duration_ms = float(p50)
+            metrics.success_p90_duration_ms = float(p90)
+            metrics.success_p95_duration_ms = float(p95)
 
         return metrics
 
@@ -200,6 +197,64 @@ class StatsCalculator:
 
         return formatted_matrix_stats
 
+    def calculate_advanced_metrics(self, workflow_runs: List[WorkflowRun]) -> Dict[str, Any]:
+        """
+        Calculates advanced statistical metrics for a list of workflow runs.
+        This includes success/failure rates, and detailed duration analysis for successful runs
+        using numpy for calculations like standard deviation and percentiles.
+
+        :param workflow_runs: A list of WorkflowRun data model objects.
+        :return: A dictionary containing advanced metrics.
+        """
+        total_runs = len(workflow_runs)
+        if total_runs == 0:
+            return {"total_runs": 0}
+
+        runs_by_conclusion = defaultdict(list)
+        for run in workflow_runs:
+            if run.conclusion:
+                runs_by_conclusion[run.conclusion].append(run)
+
+        successful_runs = len(runs_by_conclusion.get("success", []))
+        failed_runs = len(runs_by_conclusion.get("failure", []))
+
+        metrics: Dict[str, Any] = {
+            "total_runs": total_runs,
+            "successful_runs": successful_runs,
+            "failed_runs": failed_runs,
+            "cancelled_runs": len(runs_by_conclusion.get("cancelled", [])),
+            "success_rate_percent": (successful_runs / total_runs) * 100 if total_runs > 0 else 0.0,
+            "failure_rate_percent": (failed_runs / total_runs) * 100 if total_runs > 0 else 0.0,
+            "duration_stats": {}
+        }
+
+        success_durations = [run.duration_ms for run in runs_by_conclusion.get("success", []) if run.duration_ms is not None]
+
+        if success_durations:
+            data = np.array(success_durations)
+            p25, p50, p75, p90, p95, p99 = np.percentile(data, [25, 50, 75, 90, 95, 99])
+            iqr = p75 - p25
+            lower_bound = p25 - (1.5 * iqr)
+            upper_bound = p75 + (1.5 * iqr)
+
+            metrics["duration_stats"] = {
+                "count": len(data),
+                "mean": np.mean(data),
+                "std_dev": np.std(data),
+                "min": np.min(data),
+                "p25": p25,
+                "median": p50,
+                "p75": p75,
+                "p90": p90,
+                "p95": p95,
+                "p99": p99,
+                "max": np.max(data),
+                "iqr": iqr,
+                "iqr_lower_bound": lower_bound,
+                "iqr_upper_bound": upper_bound,
+            }
+        return metrics
+
 if __name__ == '__main__':
     # Example Usage (requires dummy data or actual collected data)
     from datetime import datetime, timedelta
@@ -255,5 +310,9 @@ if __name__ == '__main__':
     matrix_metrics = calculator.analyze_matrix_builds(dummy_jobs)
     for matrix_config, stats in matrix_metrics.items():
         print(f"Matrix Config: {matrix_config}, Stats: {stats}")
+
+    print("\n--- Advanced Workflow Run Statistics ---")
+    advanced_metrics = calculator.calculate_advanced_metrics(dummy_workflow_runs)
+    print(advanced_metrics)
 
 
