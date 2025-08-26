@@ -177,6 +177,10 @@
                 <label>&nbsp;</label> <!-- Placeholder for alignment -->
                 <button id="apply-filters">Apply Filters</button>
             </div>
+            <div class="control-group">
+                <label>&nbsp;</label> <!-- Placeholder for alignment -->
+                <button id="export-csv">Export to CSV</button>
+            </div>
         </div>
 
         <div class="summary-panel">
@@ -209,6 +213,12 @@
             <canvas id="runs-per-period-chart"></canvas>
         </div>
 
+        <div class="chart-container" id="job-drilldown-container" style="display: none;">
+            <h2 id="job-drilldown-title">Job Performance Breakdown</h2>
+            <p id="job-drilldown-message" style="text-align: center; font-style: italic; color: #586069;"></p>
+            <canvas id="job-drilldown-chart"></canvas>
+        </div>
+
         <div class="chart-container">
             <h2>Step Performance Overview</h2>
             <p>Step performance data will be available in a future update.</p>
@@ -218,7 +228,8 @@
         <!-- Placeholder for Chart.js library -->
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script>
-            let trendsChart, outcomesChart, runsPerPeriodChart;
+            let trendsChart, outcomesChart, runsPerPeriodChart, jobDrilldownChart;
+            let currentTrendsData = [];
 
             document.addEventListener('DOMContentLoaded', () => {
                 const today = new Date();
@@ -236,6 +247,7 @@
                     document.getElementById(id).addEventListener('change', loadData);
                 });
                 document.getElementById('apply-filters').addEventListener('click', loadData);
+                document.getElementById('export-csv').addEventListener('click', exportDataToCsv);
 
                 document.querySelector('.preset-buttons').addEventListener('click', (event) => {
                     if (event.target.tagName === 'BUTTON' && event.target.dataset.days) {
@@ -255,6 +267,43 @@
 
                 loadData(); // Initial data load
             });
+
+            function exportDataToCsv() {
+                console.log("Exporting data to CSV...");
+
+                const owner = document.getElementById('repo-owner').value;
+                const repo = document.getElementById('repo-name').value;
+                const workflowId = document.getElementById('workflow-id').value;
+                const period = document.getElementById('period').value;
+                const startDateValue = document.getElementById('start-date').value;
+                const endDateValue = document.getElementById('end-date').value;
+
+                // Convert YYYY-MM-DD to a full ISO string at the start/end of the day in UTC.
+                const startDate = startDateValue ? new Date(startDateValue + 'T00:00:00Z').toISOString() : '';
+                const endDate = endDateValue ? new Date(endDateValue + 'T23:59:59.999Z').toISOString() : '';
+
+                if (!owner || !repo || !workflowId) {
+                    console.log("Skipping export: Owner, Repo, and Workflow ID are required.");
+                    alert("Please fill in Repository Owner, Name, and Workflow ID before exporting.");
+                    return;
+                }
+
+                const params = new URLSearchParams({
+                    owner,
+                    repo,
+                    workflow_id: workflowId,
+                    period,
+                });
+
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+
+                const csvUrl = `/api/trends.csv?${params.toString()}`;
+                console.log(`Triggering download from: ${csvUrl}`);
+
+                // This will trigger a download in the browser.
+                window.location.href = csvUrl;
+            }
 
             function formatDuration(ms) {
                 if (ms === null || isNaN(ms) || ms === 0) return '-';
@@ -413,6 +462,7 @@
                     },
                     options: {
                         responsive: true,
+                        onClick: handleDrilldownClick,
                         scales: {
                             y: {
                                 beginAtZero: true
@@ -422,8 +472,128 @@
                 });
             }
 
+            async function handleDrilldownClick(event, elements) {
+                if (elements.length === 0) return;
+
+                const index = elements[0].index;
+                const periodData = currentTrendsData[index];
+                if (!periodData) return;
+
+                const periodStart = new Date(periodData.period_start + 'T00:00:00Z');
+                const periodEnd = new Date(periodStart);
+
+                const periodType = document.getElementById('period').value;
+                if (periodType === 'day') {
+                    // End of the same day
+                    periodEnd.setUTCHours(23, 59, 59, 999);
+                } else { // week
+                    // 6 days after the start day, at the end of the day
+                    periodEnd.setUTCDate(periodEnd.getUTCDate() + 6);
+                    periodEnd.setUTCHours(23, 59, 59, 999);
+                }
+
+                const owner = document.getElementById('repo-owner').value;
+                const repo = document.getElementById('repo-name').value;
+                const workflowId = document.getElementById('workflow-id').value;
+
+                const drilldownContainer = document.getElementById('job-drilldown-container');
+                const drilldownTitle = document.getElementById('job-drilldown-title');
+                drilldownTitle.textContent = `Job Performance for period starting ${periodData.period_start}`;
+                drilldownContainer.style.display = 'block';
+                
+                // Clear previous chart/message and show loading state
+                document.getElementById('job-drilldown-message').textContent = 'Loading...';
+                if (jobDrilldownChart) {
+                    jobDrilldownChart.destroy();
+                }
+                document.getElementById('job-drilldown-chart').style.display = 'none';
+
+                await loadJobDrilldownData(owner, repo, workflowId, periodStart.toISOString(), periodEnd.toISOString());
+            }
+
+            async function loadJobDrilldownData(owner, repo, workflowId, startDate, endDate) {
+                const params = new URLSearchParams({
+                    owner,
+                    repo,
+                    workflow_id: workflowId,
+                    start_date: startDate,
+                    end_date: endDate
+                });
+                const apiUrl = `/api/jobs?${params.toString()}`;
+                console.log(`Fetching job drilldown from: ${apiUrl}`);
+
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
+                    }
+                    const data = await response.json();
+                    console.log("Job drilldown data:", data);
+                    renderJobDrilldownChart(data);
+                } catch (error) {
+                    console.error("Failed to load job drilldown data:", error);
+                    document.getElementById('job-drilldown-message').textContent = `Error: ${error.message}`;
+                }
+            }
+
+            function renderJobDrilldownChart(data) {
+                const messageEl = document.getElementById('job-drilldown-message');
+                const chartCanvas = document.getElementById('job-drilldown-chart');
+                const ctx = chartCanvas.getContext('2d');
+
+                if (jobDrilldownChart) {
+                    jobDrilldownChart.destroy();
+                }
+
+                if (!data || data.length === 0) {
+                    messageEl.textContent = 'No job data available for this period.';
+                    chartCanvas.style.display = 'none';
+                    return;
+                }
+                messageEl.textContent = '';
+                chartCanvas.style.display = 'block';
+
+                const labels = data.map(d => d.job_name);
+                const p95durations = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / 1000) : null);
+
+                jobDrilldownChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'P95 Duration (s)',
+                            data: p95durations,
+                            backgroundColor: 'rgba(153, 102, 255, 0.6)'
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) { label += ': '; }
+                                        if (context.parsed.x !== null) { label += context.parsed.x.toFixed(2) + 's'; }
+                                        return label;
+                                    },
+                                    afterLabel: function(context) {
+                                        const jobData = data[context.dataIndex];
+                                        return [`Total Runs: ${jobData.total_runs}`, `Success Rate: ${jobData.success_rate}%`];
+                                    }
+                                }
+                            }
+                        },
+                        scales: { x: { beginAtZero: true, title: { display: true, text: 'P95 Duration (seconds)' } } }
+                    }
+                });
+            }
+
             async function loadData() {
                 console.log("Loading data with current filters...");
+                document.getElementById('job-drilldown-container').style.display = 'none';
 
                 const owner = document.getElementById('repo-owner').value;
                 const repo = document.getElementById('repo-name').value;
@@ -463,6 +633,7 @@
                     const data = await response.json();
 
                     console.log("API Response Data:", data);
+                    currentTrendsData = data;
                     
                     renderSummaryMetrics(data);
                     renderTrendsChart(data);

@@ -1,6 +1,7 @@
 import json
 import csv
 from typing import Dict, Any, List
+import io
 
 class ReportExporter:
     def export_to_json(self, data: Dict[str, Any], filename: str):
@@ -30,6 +31,22 @@ class ReportExporter:
             print(f"Error writing CSV file {filename}: {e}")
         except Exception as e:
             print(f"An error occurred during CSV export: {e}")
+
+    def export_to_csv_string(self, data: List[Dict[str, Any]]) -> str:
+        """Exports a list of dictionaries to a CSV formatted string."""
+        if not data:
+            return ""
+
+        output = io.StringIO()
+        try:
+            headers = data[0].keys()
+            writer = csv.DictWriter(output, fieldnames=headers)
+            writer.writeheader()
+            writer.writerows(data)
+            return output.getvalue()
+        except Exception as e:
+            print(f"An error occurred during CSV string export: {e}")
+            return ""
 
 if __name__ == '__main__':
     exporter = ReportExporter()

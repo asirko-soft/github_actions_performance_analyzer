@@ -235,8 +235,9 @@ class GHADatabase:
         if period == 'day':
             date_group = "strftime('%Y-%m-%d', created_at)"
         elif period == 'week':
-            # Using %Y-%W for year and week number (Monday as first day)
-            date_group = "strftime('%Y-%W', created_at)"
+            # Return the date of the Monday of that week for easier processing on the frontend.
+            # %w is day of week, 0=Sunday. For a Monday-starting week, this calculates the preceding Monday.
+            date_group = "date(created_at, '-' || strftime('%w', created_at) || ' days', '+1 day')"
         else:
             raise ValueError("Invalid period specified. Must be 'day' or 'week'.")
 

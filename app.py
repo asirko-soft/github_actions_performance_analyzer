@@ -1,9 +1,10 @@
-from flask import Flask, jsonify, request, render_template
+from flask import Flask, jsonify, request, render_template, Response
 from datetime import datetime
 from typing import Optional
 import numpy as np
 
 from database import GHADatabase
+from report_exporter import ReportExporter
 
 app = Flask(__name__)
 
@@ -216,6 +217,101 @@ def get_job_metrics():
             })
 
         return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/trends.csv', methods=['GET'])
+def get_trends_csv():
+    """
+    API endpoint to get time-series trend data as a CSV file.
+    Query Parameters are the same as /api/trends.
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+
+    if not all([owner, repo, workflow_id]):
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id"}), 400
+
+    start_date = parse_date(request.args.get('start_date'))
+    end_date = parse_date(request.args.get('end_date'))
+    period = request.args.get('period', 'day')
+    exclude_outliers = request.args.get('exclude_outliers', 'false').lower() == 'true'
+
+    if period not in ['day', 'week']:
+        return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
+
+    try:
+        with get_db() as db:
+            trends_raw = db.get_time_series_metrics(
+                owner=owner, repo=repo, workflow_id=workflow_id,
+                start_date=start_date, end_date=end_date, period=period
+            )
+
+        trends = []
+        for period_data in trends_raw:
+            data = dict(period_data)  # Make a mutable copy
+            success_durations_str = data.pop('success_durations_ms_list', None)
+            all_durations_str = data.pop('all_durations_ms_list', None)
+
+            p50 = p95 = p99 = None
+            outlier_count = 0
+
+            # Recalculate overall average duration if outliers are excluded
+            if exclude_outliers and all_durations_str:
+                all_durations = np.array([int(d) for d in all_durations_str.split(',') if d])
+                if len(all_durations) > 1:
+                    p25, p75 = np.percentile(all_durations, [25, 75])
+                    iqr = p75 - p25
+                    lower_bound = p25 - (1.5 * iqr)
+                    upper_bound = p75 + (1.5 * iqr)
+                    outliers_mask = (all_durations < lower_bound) | (all_durations > upper_bound)
+
+                    filtered_durations = all_durations[~outliers_mask]
+                    if len(filtered_durations) > 0:
+                        data['avg_duration_ms'] = np.mean(filtered_durations)
+                    else:
+                        data['avg_duration_ms'] = None
+
+            # The rest of the logic is for successful runs (percentiles, success average, outlier count)
+            if success_durations_str:
+                durations = np.array([int(d) for d in success_durations_str.split(',') if d])
+
+                if len(durations) > 1:
+                    # Calculate outliers based on original data before filtering
+                    p25, p75 = np.percentile(durations, [25, 75])
+                    iqr = p75 - p25
+                    lower_bound = p25 - (1.5 * iqr)
+                    upper_bound = p75 + (1.5 * iqr)
+                    outliers_mask = (durations < lower_bound) | (durations > upper_bound)
+                    outlier_count = int(np.sum(outliers_mask))
+
+                    if exclude_outliers:
+                        durations = durations[~outliers_mask]
+                        if len(durations) > 0:
+                            data['avg_success_duration_ms'] = np.mean(durations)
+                        else:
+                            data['avg_success_duration_ms'] = None
+
+                if len(durations) > 0:
+                    p50, p95, p99 = np.percentile(durations, [50, 95, 99])
+
+            data['p50_duration_ms'] = int(p50) if p50 is not None else None
+            data['p95_duration_ms'] = int(p95) if p95 is not None else None
+            data['p99_duration_ms'] = int(p99) if p99 is not None else None
+            data['outlier_count'] = outlier_count
+
+            trends.append(data)
+
+        exporter = ReportExporter()
+        csv_string = exporter.export_to_csv_string(trends)
+
+        return Response(
+            csv_string,
+            mimetype="text/csv",
+            headers={"Content-disposition": "attachment; filename=trends.csv"}
+        )
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
