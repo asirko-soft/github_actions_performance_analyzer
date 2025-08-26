@@ -248,7 +248,9 @@ class GHADatabase:
                 SUM(CASE WHEN conclusion = 'failure' THEN 1 ELSE 0 END) as failed_runs,
                 SUM(CASE WHEN conclusion = 'cancelled' THEN 1 ELSE 0 END) as cancelled_runs,
                 AVG(duration_ms) as avg_duration_ms,
-                AVG(CASE WHEN conclusion = 'success' THEN duration_ms END) as avg_success_duration_ms
+                AVG(CASE WHEN conclusion = 'success' THEN duration_ms END) as avg_success_duration_ms,
+                GROUP_CONCAT(CASE WHEN conclusion = 'success' THEN duration_ms END) as success_durations_ms_list,
+                GROUP_CONCAT(duration_ms) as all_durations_ms_list
             FROM workflows
             WHERE owner = ? AND repo = ? AND workflow_id = ?
         """
@@ -262,6 +264,41 @@ class GHADatabase:
             params.append(end_date)
 
         query += f" GROUP BY period_start ORDER BY period_start ASC"
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_job_metrics(self, owner: str, repo: str, workflow_id: str,
+                        start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+        """
+        Retrieves aggregated metrics for each job within a workflow.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :return: A list of aggregated metrics per job name.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = """
+            SELECT
+                j.name as job_name,
+                COUNT(j.id) as total_runs,
+                SUM(CASE WHEN j.conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                GROUP_CONCAT(CASE WHEN j.conclusion = 'success' THEN j.duration_ms END) as success_durations_ms_list
+            FROM jobs j
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND w.created_at >= ? AND w.created_at <= ?
+            GROUP BY j.name
+            ORDER BY j.name ASC
+        """
+        params = [owner, repo, workflow_id, start_date, end_date]
 
         cursor = self.conn.cursor()
         cursor.execute(query, params)
