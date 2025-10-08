@@ -94,6 +94,8 @@ class DataCollector:
         """
         Fetches workflow run data from GitHub API in time-based batches and stores it in the database.
         This implements a "fresh start" batch-fetching strategy.
+        
+        Skips workflow runs that already exist in the database to avoid unnecessary API calls.
 
         :param owner: The repository owner.
         :param repo: The repository name.
@@ -107,6 +109,13 @@ class DataCollector:
             raise ValueError("start_date and end_date are required for data ingestion.")
 
         total_runs_collected = 0
+        total_runs_skipped = 0
+        
+        # Get existing workflow run IDs from database to avoid re-fetching
+        existing_run_ids = self.db.get_existing_workflow_run_ids(
+            owner, repo, workflow_id, start_date, end_date
+        )
+        print(f"Found {len(existing_run_ids)} existing workflow runs in database for this date range.")
         
         # Batching logic to manage API rate limits and data volume
         batch_delta = timedelta(days=7)
@@ -133,6 +142,14 @@ class DataCollector:
             print(f"  Found {len(raw_workflow_runs)} runs in this batch.")
 
             for raw_run in raw_workflow_runs:
+                run_id = raw_run.get("id")
+                
+                # Skip if this run already exists in the database
+                if run_id in existing_run_ids:
+                    total_runs_skipped += 1
+                    print(f"    Skipping workflow run ID {run_id} (already in database)")
+                    continue
+                
                 try:
                     # Parse all data for the run, including jobs and steps
                     workflow_run = self._parse_raw_run_data(raw_run, owner, repo)
@@ -147,6 +164,7 @@ class DataCollector:
             current_start = current_end
         
         print(f"\nTotal workflow runs collected and stored: {total_runs_collected}")
+        print(f"Total workflow runs skipped (already in database): {total_runs_skipped}")
         return total_runs_collected
 
 
@@ -170,9 +188,9 @@ if __name__ == '__main__':
             
             collector = DataCollector(client, db)
 
-            owner = "octocat"
-            repo = "Spoon-Knife"
-            workflow_id = "blank.yml" # Replace with your workflow ID or filename
+            owner = "project-chip"
+            repo = "connectedhomeip"
+            workflow_id = "tests.yaml" # Replace with your workflow ID or filename
 
             # Define a date range for collection (e.g., last 90 days)
             end_date = datetime.utcnow()

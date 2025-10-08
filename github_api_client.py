@@ -115,9 +115,9 @@ if __name__ == '__main__':
         print("Please set the GITHUB_TOKEN environment variable.")
     else:
         client = GitHubApiClient(github_token)
-        owner = "octocat"
-        repo = "Spoon-Knife"
-        workflow_id = "blank.yml" # Or the workflow ID number
+        owner = "project-chip"
+        repo = "connectedhomeip"
+        workflow_id = "tests.yaml" # Or the workflow ID number
 
         print(f"Fetching workflow runs for {owner}/{repo}/{workflow_id}...")
         try:

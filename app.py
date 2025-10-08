@@ -77,6 +77,7 @@ def get_trends():
     - end_date (str, optional): ISO 8601 format.
     - period (str, optional): 'day' or 'week'. Defaults to 'day'.
     - exclude_outliers (bool, optional): If true, exclude outliers from percentile and average success duration calculations.
+    - conclusions (str, optional): Comma-separated list of conclusion values to filter by (e.g., 'success,failure').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -89,6 +90,12 @@ def get_trends():
     end_date = parse_date(request.args.get('end_date'))
     period = request.args.get('period', 'day')
     exclude_outliers = request.args.get('exclude_outliers', 'false').lower() == 'true'
+    
+    # Parse conclusions filter
+    conclusions = None
+    conclusions_param = request.args.get('conclusions')
+    if conclusions_param:
+        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
 
     if period not in ['day', 'week']:
         return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
@@ -97,7 +104,8 @@ def get_trends():
         with get_db() as db:
             trends_raw = db.get_time_series_metrics(
                 owner=owner, repo=repo, workflow_id=workflow_id,
-                start_date=start_date, end_date=end_date, period=period
+                start_date=start_date, end_date=end_date, period=period,
+                conclusions=conclusions
             )
 
         trends = []
@@ -171,6 +179,7 @@ def get_job_metrics():
     - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
     - start_date (str, required): ISO 8601 format.
     - end_date (str, required): ISO 8601 format.
+    - conclusions (str, optional): Comma-separated list of conclusion values to filter by (e.g., 'success,failure').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -186,12 +195,19 @@ def get_job_metrics():
 
     if not start_date or not end_date:
         return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
+    
+    # Parse conclusions filter
+    conclusions = None
+    conclusions_param = request.args.get('conclusions')
+    if conclusions_param:
+        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
 
     try:
         with get_db() as db:
             raw_metrics = db.get_job_metrics(
                 owner=owner, repo=repo, workflow_id=workflow_id,
-                start_date=start_date, end_date=end_date
+                start_date=start_date, end_date=end_date,
+                conclusions=conclusions
             )
 
         results = []
@@ -238,6 +254,12 @@ def get_trends_csv():
     end_date = parse_date(request.args.get('end_date'))
     period = request.args.get('period', 'day')
     exclude_outliers = request.args.get('exclude_outliers', 'false').lower() == 'true'
+    
+    # Parse conclusions filter
+    conclusions = None
+    conclusions_param = request.args.get('conclusions')
+    if conclusions_param:
+        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
 
     if period not in ['day', 'week']:
         return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
@@ -246,7 +268,8 @@ def get_trends_csv():
         with get_db() as db:
             trends_raw = db.get_time_series_metrics(
                 owner=owner, repo=repo, workflow_id=workflow_id,
-                start_date=start_date, end_date=end_date, period=period
+                start_date=start_date, end_date=end_date, period=period,
+                conclusions=conclusions
             )
 
         trends = []
@@ -312,6 +335,232 @@ def get_trends_csv():
             mimetype="text/csv",
             headers={"Content-disposition": "attachment; filename=trends.csv"}
         )
+    except Exception as e:
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/jobs/slowest', methods=['GET'])
+def get_slowest_jobs():
+    """
+    API endpoint to get the slowest jobs by P95 duration.
+    Query Parameters:
+    - owner (str, required): Repository owner.
+    - repo (str, required): Repository name.
+    - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
+    - start_date (str, required): ISO 8601 format.
+    - end_date (str, required): ISO 8601 format.
+    - limit (int, optional): Number of jobs to return (default 10).
+    - conclusions (str, optional): Comma-separated list of conclusion values.
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    limit = int(request.args.get('limit', 10))
+
+    if not all([owner, repo, workflow_id, start_date_str, end_date_str]):
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id, start_date, end_date"}), 400
+
+    start_date = parse_date(start_date_str)
+    end_date = parse_date(end_date_str)
+
+    if not start_date or not end_date:
+        return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
+    
+    # Parse conclusions filter
+    conclusions = None
+    conclusions_param = request.args.get('conclusions')
+    if conclusions_param:
+        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+
+    try:
+        with get_db() as db:
+            raw_metrics = db.get_slowest_jobs(
+                owner=owner, repo=repo, workflow_id=workflow_id,
+                start_date=start_date, end_date=end_date,
+                limit=limit, conclusions=conclusions
+            )
+
+        results = []
+        for job_data in raw_metrics:
+            total_runs = job_data['total_runs']
+            successful_runs = job_data['successful_runs'] or 0
+
+            success_rate = (successful_runs / total_runs * 100.0) if total_runs > 0 else 0.0
+
+            avg_duration_ms = job_data.get('avg_success_duration_ms')
+            p95_duration_ms = None
+            durations_str = job_data.get('success_durations_ms_list')
+            if durations_str:
+                durations = np.array([int(d) for d in durations_str.split(',') if d])
+                if len(durations) > 0:
+                    p95 = np.percentile(durations, 95)
+                    p95_duration_ms = int(p95)
+
+            results.append({
+                "job_name": job_data['job_name'],
+                "total_runs": total_runs,
+                "success_rate": round(success_rate, 1),
+                "avg_duration_ms": int(avg_duration_ms) if avg_duration_ms else None,
+                "p95_duration_ms": p95_duration_ms
+            })
+
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/steps', methods=['GET'])
+def get_steps():
+    """
+    API endpoint to get step metrics, optionally filtered by job.
+    Query Parameters:
+    - owner (str, required): Repository owner.
+    - repo (str, required): Repository name.
+    - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
+    - start_date (str, required): ISO 8601 format.
+    - end_date (str, required): ISO 8601 format.
+    - job_name (str, optional): Filter by job name.
+    - limit (int, optional): Limit results (default: no limit).
+    - conclusions (str, optional): Comma-separated list of conclusion values.
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    job_name = request.args.get('job_name')
+    limit = request.args.get('limit')
+
+    if not all([owner, repo, workflow_id, start_date_str, end_date_str]):
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id, start_date, end_date"}), 400
+
+    start_date = parse_date(start_date_str)
+    end_date = parse_date(end_date_str)
+
+    if not start_date or not end_date:
+        return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
+    
+    # Parse conclusions filter
+    conclusions = None
+    conclusions_param = request.args.get('conclusions')
+    if conclusions_param:
+        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+
+    try:
+        with get_db() as db:
+            if limit:
+                raw_metrics = db.get_slowest_steps(
+                    owner=owner, repo=repo, workflow_id=workflow_id,
+                    start_date=start_date, end_date=end_date,
+                    job_name=job_name, limit=int(limit),
+                    conclusions=conclusions
+                )
+            else:
+                raw_metrics = db.get_step_metrics(
+                    owner=owner, repo=repo, workflow_id=workflow_id,
+                    start_date=start_date, end_date=end_date,
+                    job_name=job_name, conclusions=conclusions
+                )
+
+        results = []
+        for step_data in raw_metrics:
+            total_runs = step_data['total_runs']
+            successful_runs = step_data['successful_runs'] or 0
+
+            success_rate = (successful_runs / total_runs * 100.0) if total_runs > 0 else 0.0
+
+            avg_duration_ms = step_data.get('avg_duration_ms')
+            avg_success_duration_ms = step_data.get('avg_success_duration_ms')
+            p95_duration_ms = None
+            durations_str = step_data.get('success_durations_ms_list')
+            if durations_str:
+                durations = np.array([int(d) for d in durations_str.split(',') if d])
+                if len(durations) > 0:
+                    p95 = np.percentile(durations, 95)
+                    p95_duration_ms = int(p95)
+
+            results.append({
+                "step_name": step_data['step_name'],
+                "job_name": step_data['job_name'],
+                "total_runs": total_runs,
+                "success_rate": round(success_rate, 1),
+                "avg_duration_ms": int(avg_duration_ms) if avg_duration_ms else None,
+                "avg_success_duration_ms": int(avg_success_duration_ms) if avg_success_duration_ms else None,
+                "p95_duration_ms": p95_duration_ms
+            })
+
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/jobs/<job_name>/trends', methods=['GET'])
+def get_job_trends(job_name):
+    """
+    API endpoint to get time-series trend data for a specific job.
+    Query Parameters:
+    - owner (str, required): Repository owner.
+    - repo (str, required): Repository name.
+    - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
+    - start_date (str, required): ISO 8601 format.
+    - end_date (str, required): ISO 8601 format.
+    - period (str, optional): 'day' or 'week' (default 'day').
+    - conclusions (str, optional): Comma-separated list of conclusion values.
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    period = request.args.get('period', 'day')
+
+    if not all([owner, repo, workflow_id, start_date_str, end_date_str]):
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id, start_date, end_date"}), 400
+
+    start_date = parse_date(start_date_str)
+    end_date = parse_date(end_date_str)
+
+    if not start_date or not end_date:
+        return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
+    
+    if period not in ['day', 'week']:
+        return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
+    
+    # Parse conclusions filter
+    conclusions = None
+    conclusions_param = request.args.get('conclusions')
+    if conclusions_param:
+        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+
+    try:
+        with get_db() as db:
+            trends_raw = db.get_job_time_series(
+                owner=owner, repo=repo, workflow_id=workflow_id,
+                job_name=job_name,
+                start_date=start_date, end_date=end_date,
+                period=period, conclusions=conclusions
+            )
+
+        trends = []
+        for period_data in trends_raw:
+            data = dict(period_data)
+            success_durations_str = data.pop('success_durations_ms_list', None)
+
+            p50 = p95 = p99 = None
+            if success_durations_str:
+                durations = np.array([int(d) for d in success_durations_str.split(',') if d])
+                if len(durations) > 0:
+                    p50, p95, p99 = np.percentile(durations, [50, 95, 99])
+
+            data['p50_duration_ms'] = int(p50) if p50 is not None else None
+            data['p95_duration_ms'] = int(p95) if p95 is not None else None
+            data['p99_duration_ms'] = int(p99) if p99 is not None else None
+
+            trends.append(data)
+
+        return jsonify(trends)
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 

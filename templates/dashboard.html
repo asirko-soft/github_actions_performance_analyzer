@@ -63,6 +63,22 @@
             font-size: 1em;
             background-color: #fff;
         }
+        .status-filter {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        .status-filter label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-weight: normal;
+            color: #24292e;
+            cursor: pointer;
+        }
+        .status-filter input[type="checkbox"] {
+            cursor: pointer;
+        }
         .control-group button {
             background-color: #2ea44f; /* GitHub green button */
             color: #fff;
@@ -118,6 +134,56 @@
             padding-bottom: 10px;
             margin-bottom: 15px;
         }
+        .chart-container .help-text {
+            color: #586069;
+            font-size: 0.9em;
+            margin-top: -10px;
+            margin-bottom: 15px;
+            font-style: italic;
+        }
+        .outcomes-widget {
+            max-width: 400px;
+            margin: 0 auto;
+        }
+        .info-icon {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            background-color: #0366d6;
+            color: white;
+            border-radius: 50%;
+            text-align: center;
+            font-size: 12px;
+            line-height: 16px;
+            cursor: help;
+            margin-left: 5px;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+        }
+        .tooltip .tooltiptext {
+            visibility: hidden;
+            width: 300px;
+            background-color: #24292e;
+            color: #fff;
+            text-align: left;
+            border-radius: 6px;
+            padding: 10px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -150px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            font-size: 0.85em;
+            line-height: 1.4;
+        }
+        .tooltip:hover .tooltiptext {
+            visibility: visible;
+            opacity: 1;
+        }
         .chart-placeholder {
             width: 100%;
             height: 300px; /* Placeholder height for charts */
@@ -140,15 +206,15 @@
         <div class="control-panel">
             <div class="control-group">
                 <label for="repo-owner">Repository Owner:</label>
-                <input type="text" id="repo-owner" value="octocat">
+                <input type="text" id="repo-owner" value="project-chip">
             </div>
             <div class="control-group">
                 <label for="repo-name">Repository Name:</label>
-                <input type="text" id="repo-name" value="Spoon-Knife">
+                <input type="text" id="repo-name" value="connectedhomeip">
             </div>
             <div class="control-group">
                 <label for="workflow-id">Workflow ID:</label>
-                <input type="text" id="workflow-id" value="blank.yml">
+                <input type="text" id="workflow-id" value="tests.yaml">
             </div>
             <div class="control-group">
                 <label for="start-date">Start Date:</label>
@@ -172,6 +238,16 @@
                     <option value="day">Day</option>
                     <option value="week">Week</option>
                 </select>
+            </div>
+            <div class="control-group">
+                <label style="font-weight: bold;">Workflow Status:</label>
+                <div class="status-filter">
+                    <label><input type="checkbox" class="status-checkbox" value="success" checked> Success</label>
+                    <label><input type="checkbox" class="status-checkbox" value="failure" checked> Failure</label>
+                    <label><input type="checkbox" class="status-checkbox" value="cancelled" checked> Cancelled</label>
+                    <label><input type="checkbox" class="status-checkbox" value="skipped" checked> Skipped</label>
+                    <label><input type="checkbox" class="status-checkbox" value="action_required" checked> Action Required</label>
+                </div>
             </div>
             <div class="control-group">
                 <label>&nbsp;</label> <!-- Placeholder for alignment -->
@@ -199,13 +275,28 @@
         </div>
 
         <div class="chart-container">
-            <h2>Workflow Run Trends</h2>
+            <h2>
+                Workflow Run Trends
+                <span class="tooltip">
+                    <span class="info-icon">?</span>
+                    <span class="tooltiptext">
+                        <strong>P50 (Median):</strong> 50% of runs complete faster than this time<br>
+                        <strong>P95:</strong> 95% of runs complete faster than this time - useful for identifying outliers<br>
+                        <strong>P99:</strong> 99% of runs complete faster than this time - shows worst-case scenarios<br><br>
+                        <strong>Note:</strong> Percentiles (P50, P95, P99) are calculated from successful runs only. Average duration includes all runs (success, failure, cancelled).
+                    </span>
+                </span>
+            </h2>
+            <p class="help-text">Shows performance trends over time. Percentiles help you understand typical vs. worst-case performance.</p>
             <canvas id="workflow-trends-chart"></canvas>
         </div>
 
         <div class="chart-container">
             <h2>Workflow Run Outcomes</h2>
-            <canvas id="workflow-outcomes-chart"></canvas>
+            <p class="help-text">Distribution of workflow run results across the selected time period.</p>
+            <div class="outcomes-widget">
+                <canvas id="workflow-outcomes-chart"></canvas>
+            </div>
         </div>
 
         <div class="chart-container">
@@ -220,16 +311,38 @@
         </div>
 
         <div class="chart-container">
-            <h2>Step Performance Overview</h2>
-            <p>Step performance data will be available in a future update.</p>
-            <canvas id="step-performance-chart" style="display: none;"></canvas>
+            <h2>Top 10 Slowest Jobs (by P95 Duration)
+                <span class="tooltip">
+                    <span class="info-icon">?</span>
+                    <span class="tooltiptext">
+                        Shows the top 10 jobs with the highest P95 duration for successful runs. Click on a job bar to see step-level breakdown.
+                    </span>
+                </span>
+            </h2>
+            <p class="help-text">Click on any job to see detailed step performance breakdown.</p>
+            <p id="slowest-jobs-message" style="text-align: center; font-style: italic; color: #586069;"></p>
+            <canvas id="slowest-jobs-chart"></canvas>
+        </div>
+
+        <div class="chart-container" id="step-drilldown-container" style="display: none;">
+            <h2 id="step-drilldown-title">Step Performance for Job</h2>
+            <button id="back-to-jobs" style="margin-bottom: 15px; padding: 8px 16px; background-color: #586069; color: white; border: none; border-radius: 6px; cursor: pointer;">← Back to Jobs</button>
+            <p id="step-drilldown-message" style="text-align: center; font-style: italic; color: #586069;"></p>
+            <canvas id="step-drilldown-chart"></canvas>
+        </div>
+
+        <div class="chart-container" id="job-trend-container" style="display: none;">
+            <h2 id="job-trend-title">Job Performance Over Time</h2>
+            <p id="job-trend-message" style="text-align: center; font-style: italic; color: #586069;"></p>
+            <canvas id="job-trend-chart"></canvas>
         </div>
 
         <!-- Placeholder for Chart.js library -->
         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <script>
-            let trendsChart, outcomesChart, runsPerPeriodChart, jobDrilldownChart;
+            let trendsChart, outcomesChart, runsPerPeriodChart, jobDrilldownChart, slowestJobsChart, stepDrilldownChart, jobTrendChart;
             let currentTrendsData = [];
+            let currentJobSelection = null;
 
             document.addEventListener('DOMContentLoaded', () => {
                 const today = new Date();
@@ -265,8 +378,19 @@
                     }
                 });
 
+                document.getElementById('back-to-jobs').addEventListener('click', () => {
+                    document.getElementById('step-drilldown-container').style.display = 'none';
+                    document.getElementById('job-trend-container').style.display = 'none';
+                    currentJobSelection = null;
+                });
+
                 loadData(); // Initial data load
             });
+
+            function getSelectedConclusions() {
+                const checkboxes = document.querySelectorAll('.status-checkbox:checked');
+                return Array.from(checkboxes).map(cb => cb.value);
+            }
 
             function exportDataToCsv() {
                 console.log("Exporting data to CSV...");
@@ -297,6 +421,11 @@
 
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
+                
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
 
                 const csvUrl = `/api/trends.csv?${params.toString()}`;
                 console.log(`Triggering download from: ${csvUrl}`);
@@ -317,6 +446,30 @@
                 
                 const hours = minutes / 60;
                 return `${hours.toFixed(1)}h`;
+            }
+
+            function formatDurationForChart(ms) {
+                if (ms === null || isNaN(ms) || ms === 0) return null;
+                
+                const seconds = ms / 1000;
+                const minutes = seconds / 60;
+                const hours = minutes / 60;
+                
+                // Return in the most appropriate unit
+                if (hours >= 1) return hours;
+                if (minutes >= 1) return minutes;
+                return seconds;
+            }
+
+            function getDurationUnit(maxMs) {
+                if (maxMs === null || isNaN(maxMs) || maxMs === 0) return 'seconds';
+                
+                const maxHours = maxMs / 1000 / 60 / 60;
+                const maxMinutes = maxMs / 1000 / 60;
+                
+                if (maxHours >= 1) return 'hours';
+                if (maxMinutes >= 1) return 'minutes';
+                return 'seconds';
             }
 
             function renderSummaryMetrics(data) {
@@ -343,37 +496,44 @@
                 }
                 const ctx = document.getElementById('workflow-trends-chart').getContext('2d');
                 const labels = data.map(d => d.period_start);
-                const avgDurationData = data.map(d => d.avg_duration_ms ? (d.avg_duration_ms / 1000).toFixed(2) : null);
-                const p50DurationData = data.map(d => d.p50_duration_ms ? (d.p50_duration_ms / 1000).toFixed(2) : null);
-                const p95DurationData = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / 1000).toFixed(2) : null);
-                const p99DurationData = data.map(d => d.p99_duration_ms ? (d.p99_duration_ms / 1000).toFixed(2) : null);
+                
+                // Determine the best unit based on max values
+                const allDurations = data.flatMap(d => [d.avg_duration_ms, d.p50_duration_ms, d.p95_duration_ms, d.p99_duration_ms].filter(v => v !== null));
+                const maxDuration = allDurations.length > 0 ? Math.max(...allDurations) : 0;
+                const unit = getDurationUnit(maxDuration);
+                const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
+                
+                const avgDurationData = data.map(d => d.avg_duration_ms ? (d.avg_duration_ms / divisor) : null);
+                const p50DurationData = data.map(d => d.p50_duration_ms ? (d.p50_duration_ms / divisor) : null);
+                const p95DurationData = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / divisor) : null);
+                const p99DurationData = data.map(d => d.p99_duration_ms ? (d.p99_duration_ms / divisor) : null);
 
                 trendsChart = new Chart(ctx, {
                     type: 'line',
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: 'Average Duration (s)',
+                            label: `Average Duration (${unit}) - All Runs`,
                             data: avgDurationData,
                             borderColor: 'rgb(75, 192, 192)',
                             tension: 0.1,
                             fill: false
                         }, {
-                            label: 'P50 (Median) Duration (s)',
+                            label: `P50 / Median (${unit}) - Successful Runs`,
                             data: p50DurationData,
                             borderColor: 'rgb(255, 159, 64)', // Orange
                             tension: 0.1,
                             fill: false,
                             borderDash: [5, 5]
                         }, {
-                            label: 'P95 Duration (s)',
+                            label: `P95 (${unit}) - Successful Runs`,
                             data: p95DurationData,
                             borderColor: 'rgb(255, 99, 132)', // Red
                             tension: 0.1,
                             fill: false,
                             hidden: true // Hidden by default
                         }, {
-                            label: 'P99 Duration (s)',
+                            label: `P99 (${unit}) - Successful Runs`,
                             data: p99DurationData,
                             borderColor: 'rgb(153, 102, 255)', // Purple
                             tension: 0.1,
@@ -391,6 +551,16 @@
                             tooltip: {
                                 mode: 'index',
                                 intersect: false,
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (context.parsed.y !== null) {
+                                            const ms = context.parsed.y * divisor;
+                                            label += ': ' + formatDuration(ms);
+                                        }
+                                        return label;
+                                    }
+                                }
                             }
                         },
                         scales: {
@@ -398,7 +568,7 @@
                                 beginAtZero: true,
                                 title: {
                                     display: true,
-                                    text: 'Duration (seconds)'
+                                    text: `Duration (${unit})`
                                 }
                             }
                         }
@@ -519,6 +689,12 @@
                     start_date: startDate,
                     end_date: endDate
                 });
+                
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
+                
                 const apiUrl = `/api/jobs?${params.toString()}`;
                 console.log(`Fetching job drilldown from: ${apiUrl}`);
 
@@ -555,14 +731,20 @@
                 chartCanvas.style.display = 'block';
 
                 const labels = data.map(d => d.job_name);
-                const p95durations = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / 1000) : null);
+                const p95durationsMs = data.map(d => d.p95_duration_ms || null);
+                
+                // Determine the best unit
+                const maxDuration = p95durationsMs.filter(d => d !== null).reduce((max, d) => Math.max(max, d), 0);
+                const unit = getDurationUnit(maxDuration);
+                const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
+                const p95durations = p95durationsMs.map(d => d ? (d / divisor) : null);
 
                 jobDrilldownChart = new Chart(ctx, {
                     type: 'bar',
                     data: {
                         labels: labels,
                         datasets: [{
-                            label: 'P95 Duration (s)',
+                            label: `P95 Duration (${unit}) - Successful Runs`,
                             data: p95durations,
                             backgroundColor: 'rgba(153, 102, 255, 0.6)'
                         }]
@@ -576,7 +758,10 @@
                                     label: function(context) {
                                         let label = context.dataset.label || '';
                                         if (label) { label += ': '; }
-                                        if (context.parsed.x !== null) { label += context.parsed.x.toFixed(2) + 's'; }
+                                        if (context.parsed.x !== null) { 
+                                            const ms = context.parsed.x * divisor;
+                                            label += formatDuration(ms);
+                                        }
                                         return label;
                                     },
                                     afterLabel: function(context) {
@@ -586,7 +771,377 @@
                                 }
                             }
                         },
-                        scales: { x: { beginAtZero: true, title: { display: true, text: 'P95 Duration (seconds)' } } }
+                        scales: { x: { beginAtZero: true, title: { display: true, text: `P95 Duration (${unit})` } } }
+                    }
+                });
+            }
+
+            async function loadSlowestJobs() {
+                const owner = document.getElementById('repo-owner').value;
+                const repo = document.getElementById('repo-name').value;
+                const workflowId = document.getElementById('workflow-id').value;
+                const startDateValue = document.getElementById('start-date').value;
+                const endDateValue = document.getElementById('end-date').value;
+
+                const startDate = startDateValue ? new Date(startDateValue + 'T00:00:00Z').toISOString() : '';
+                const endDate = endDateValue ? new Date(endDateValue + 'T23:59:59.999Z').toISOString() : '';
+
+                if (!owner || !repo || !workflowId || !startDate || !endDate) {
+                    return;
+                }
+
+                const params = new URLSearchParams({
+                    owner,
+                    repo,
+                    workflow_id: workflowId,
+                    start_date: startDate,
+                    end_date: endDate,
+                    limit: 10
+                });
+
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
+
+                const apiUrl = `/api/jobs/slowest?${params.toString()}`;
+                console.log(`Fetching slowest jobs from: ${apiUrl}`);
+
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
+                    }
+                    const data = await response.json();
+                    console.log("Slowest jobs data:", data);
+                    renderSlowestJobsChart(data);
+                } catch (error) {
+                    console.error("Failed to load slowest jobs:", error);
+                    document.getElementById('slowest-jobs-message').textContent = `Error: ${error.message}`;
+                }
+            }
+
+            function renderSlowestJobsChart(data) {
+                const messageEl = document.getElementById('slowest-jobs-message');
+                const chartCanvas = document.getElementById('slowest-jobs-chart');
+                const ctx = chartCanvas.getContext('2d');
+
+                if (slowestJobsChart) {
+                    slowestJobsChart.destroy();
+                }
+
+                if (!data || data.length === 0) {
+                    messageEl.textContent = 'No job data available for the selected period.';
+                    chartCanvas.style.display = 'none';
+                    return;
+                }
+                messageEl.textContent = '';
+                chartCanvas.style.display = 'block';
+
+                const labels = data.map(d => d.job_name.length > 40 ? d.job_name.substring(0, 37) + '...' : d.job_name);
+                const p95durationsMs = data.map(d => d.p95_duration_ms || null);
+                
+                const maxDuration = p95durationsMs.filter(d => d !== null).reduce((max, d) => Math.max(max, d), 0);
+                const unit = getDurationUnit(maxDuration);
+                const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
+                const p95durations = p95durationsMs.map(d => d ? (d / divisor) : null);
+
+                slowestJobsChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `P95 Duration (${unit})`,
+                            data: p95durations,
+                            backgroundColor: 'rgba(255, 99, 132, 0.6)',
+                            borderColor: 'rgba(255, 99, 132, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        onClick: async (event, elements) => {
+                            if (elements.length > 0) {
+                                const index = elements[0].index;
+                                const jobData = data[index];
+                                currentJobSelection = jobData.job_name;
+                                await loadStepsForJob(jobData.job_name);
+                                await loadJobTrends(jobData.job_name);
+                            }
+                        },
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) { label += ': '; }
+                                        if (context.parsed.x !== null) { 
+                                            const ms = context.parsed.x * divisor;
+                                            label += formatDuration(ms);
+                                        }
+                                        return label;
+                                    },
+                                    afterLabel: function(context) {
+                                        const jobData = data[context.dataIndex];
+                                        return [`Total Runs: ${jobData.total_runs}`, `Success Rate: ${jobData.success_rate}%`];
+                                    }
+                                }
+                            }
+                        },
+                        scales: { 
+                            x: { 
+                                beginAtZero: true, 
+                                title: { display: true, text: `P95 Duration (${unit})` } 
+                            } 
+                        }
+                    }
+                });
+            }
+
+            async function loadStepsForJob(jobName) {
+                const owner = document.getElementById('repo-owner').value;
+                const repo = document.getElementById('repo-name').value;
+                const workflowId = document.getElementById('workflow-id').value;
+                const startDateValue = document.getElementById('start-date').value;
+                const endDateValue = document.getElementById('end-date').value;
+
+                const startDate = startDateValue ? new Date(startDateValue + 'T00:00:00Z').toISOString() : '';
+                const endDate = endDateValue ? new Date(endDateValue + 'T23:59:59.999Z').toISOString() : '';
+
+                const stepContainer = document.getElementById('step-drilldown-container');
+                const stepTitle = document.getElementById('step-drilldown-title');
+                const messageEl = document.getElementById('step-drilldown-message');
+                
+                stepTitle.textContent = `Step Performance for: ${jobName}`;
+                stepContainer.style.display = 'block';
+                messageEl.textContent = 'Loading...';
+
+                const params = new URLSearchParams({
+                    owner,
+                    repo,
+                    workflow_id: workflowId,
+                    start_date: startDate,
+                    end_date: endDate,
+                    job_name: jobName,
+                    limit: 20
+                });
+
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
+
+                const apiUrl = `/api/steps?${params.toString()}`;
+                console.log(`Fetching steps for job from: ${apiUrl}`);
+
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
+                    }
+                    const data = await response.json();
+                    console.log("Steps data:", data);
+                    renderStepDrilldownChart(data);
+                } catch (error) {
+                    console.error("Failed to load steps:", error);
+                    messageEl.textContent = `Error: ${error.message}`;
+                }
+            }
+
+            function renderStepDrilldownChart(data) {
+                const messageEl = document.getElementById('step-drilldown-message');
+                const chartCanvas = document.getElementById('step-drilldown-chart');
+                const ctx = chartCanvas.getContext('2d');
+
+                if (stepDrilldownChart) {
+                    stepDrilldownChart.destroy();
+                }
+
+                if (!data || data.length === 0) {
+                    messageEl.textContent = 'No step data available for this job.';
+                    chartCanvas.style.display = 'none';
+                    return;
+                }
+                messageEl.textContent = '';
+                chartCanvas.style.display = 'block';
+
+                const labels = data.map(d => d.step_name.length > 50 ? d.step_name.substring(0, 47) + '...' : d.step_name);
+                const avgDurationsMs = data.map(d => d.avg_success_duration_ms || d.avg_duration_ms || null);
+                
+                const maxDuration = avgDurationsMs.filter(d => d !== null).reduce((max, d) => Math.max(max, d), 0);
+                const unit = getDurationUnit(maxDuration);
+                const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
+                const avgDurations = avgDurationsMs.map(d => d ? (d / divisor) : null);
+
+                stepDrilldownChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `Avg Duration (${unit})`,
+                            data: avgDurations,
+                            backgroundColor: 'rgba(75, 192, 192, 0.6)',
+                            borderColor: 'rgba(75, 192, 192, 1)',
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (label) { label += ': '; }
+                                        if (context.parsed.x !== null) { 
+                                            const ms = context.parsed.x * divisor;
+                                            label += formatDuration(ms);
+                                        }
+                                        return label;
+                                    },
+                                    afterLabel: function(context) {
+                                        const stepData = data[context.dataIndex];
+                                        return [`Total Runs: ${stepData.total_runs}`, `Success Rate: ${stepData.success_rate}%`];
+                                    }
+                                }
+                            }
+                        },
+                        scales: { 
+                            x: { 
+                                beginAtZero: true, 
+                                title: { display: true, text: `Avg Duration (${unit})` } 
+                            } 
+                        }
+                    }
+                });
+            }
+
+            async function loadJobTrends(jobName) {
+                const owner = document.getElementById('repo-owner').value;
+                const repo = document.getElementById('repo-name').value;
+                const workflowId = document.getElementById('workflow-id').value;
+                const period = document.getElementById('period').value;
+                const startDateValue = document.getElementById('start-date').value;
+                const endDateValue = document.getElementById('end-date').value;
+
+                const startDate = startDateValue ? new Date(startDateValue + 'T00:00:00Z').toISOString() : '';
+                const endDate = endDateValue ? new Date(endDateValue + 'T23:59:59.999Z').toISOString() : '';
+
+                const trendContainer = document.getElementById('job-trend-container');
+                const trendTitle = document.getElementById('job-trend-title');
+                const messageEl = document.getElementById('job-trend-message');
+                
+                trendTitle.textContent = `Performance Trend for: ${jobName}`;
+                trendContainer.style.display = 'block';
+                messageEl.textContent = 'Loading...';
+
+                const params = new URLSearchParams({
+                    owner,
+                    repo,
+                    workflow_id: workflowId,
+                    start_date: startDate,
+                    end_date: endDate,
+                    period: period
+                });
+
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
+
+                const apiUrl = `/api/jobs/${encodeURIComponent(jobName)}/trends?${params.toString()}`;
+                console.log(`Fetching job trends from: ${apiUrl}`);
+
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
+                    }
+                    const data = await response.json();
+                    console.log("Job trends data:", data);
+                    renderJobTrendChart(data);
+                } catch (error) {
+                    console.error("Failed to load job trends:", error);
+                    messageEl.textContent = `Error: ${error.message}`;
+                }
+            }
+
+            function renderJobTrendChart(data) {
+                const messageEl = document.getElementById('job-trend-message');
+                const chartCanvas = document.getElementById('job-trend-chart');
+                const ctx = chartCanvas.getContext('2d');
+
+                if (jobTrendChart) {
+                    jobTrendChart.destroy();
+                }
+
+                if (!data || data.length === 0) {
+                    messageEl.textContent = 'No trend data available for this job.';
+                    chartCanvas.style.display = 'none';
+                    return;
+                }
+                messageEl.textContent = '';
+                chartCanvas.style.display = 'block';
+
+                const labels = data.map(d => d.period_start);
+                const allDurations = data.flatMap(d => [d.avg_duration_ms, d.p50_duration_ms, d.p95_duration_ms].filter(v => v !== null));
+                const maxDuration = allDurations.length > 0 ? Math.max(...allDurations) : 0;
+                const unit = getDurationUnit(maxDuration);
+                const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
+                
+                const avgDurationData = data.map(d => d.avg_duration_ms ? (d.avg_duration_ms / divisor) : null);
+                const p95DurationData = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / divisor) : null);
+
+                jobTrendChart = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: `Average Duration (${unit})`,
+                            data: avgDurationData,
+                            borderColor: 'rgb(75, 192, 192)',
+                            backgroundColor: 'rgba(75, 192, 192, 0.1)',
+                            tension: 0.1,
+                            fill: true
+                        }, {
+                            label: `P95 Duration (${unit})`,
+                            data: p95DurationData,
+                            borderColor: 'rgb(255, 99, 132)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.1)',
+                            tension: 0.1,
+                            fill: false
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        let label = context.dataset.label || '';
+                                        if (context.parsed.y !== null) {
+                                            const ms = context.parsed.y * divisor;
+                                            label += ': ' + formatDuration(ms);
+                                        }
+                                        return label;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                title: {
+                                    display: true,
+                                    text: `Duration (${unit})`
+                                }
+                            }
+                        }
                     }
                 });
             }
@@ -594,6 +1149,8 @@
             async function loadData() {
                 console.log("Loading data with current filters...");
                 document.getElementById('job-drilldown-container').style.display = 'none';
+                document.getElementById('step-drilldown-container').style.display = 'none';
+                document.getElementById('job-trend-container').style.display = 'none';
 
                 const owner = document.getElementById('repo-owner').value;
                 const repo = document.getElementById('repo-name').value;
@@ -620,6 +1177,11 @@
 
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
+                
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
 
                 const apiUrl = `/api/trends?${params.toString()}`;
                 console.log(`Fetching from: ${apiUrl}`);
@@ -639,6 +1201,9 @@
                     renderTrendsChart(data);
                     renderOutcomesChart(data);
                     renderRunsPerPeriodChart(data);
+                    
+                    // Load slowest jobs
+                    await loadSlowestJobs();
                 } catch (error) {
                     console.error("Failed to load data:", error);
                 }

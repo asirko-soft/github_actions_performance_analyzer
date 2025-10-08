@@ -217,7 +217,8 @@ class GHADatabase:
     def get_time_series_metrics(self, owner: str, repo: str, workflow_id: str,
                                 start_date: Optional[datetime] = None,
                                 end_date: Optional[datetime] = None,
-                                period: str = 'day') -> List[Dict[str, Any]]:
+                                period: str = 'day',
+                                conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves time-series aggregated metrics for workflow runs.
 
@@ -227,6 +228,7 @@ class GHADatabase:
         :param start_date: Optional start date for filtering.
         :param end_date: Optional end date for filtering.
         :param period: The time period to group by ('day' or 'week').
+        :param conclusions: Optional list of conclusion values to filter by (e.g., ['success', 'failure']).
         :return: A list of aggregated metrics, where each item is a dictionary.
         """
         if not self.conn:
@@ -263,6 +265,11 @@ class GHADatabase:
         if end_date:
             query += " AND created_at <= ?"
             params.append(end_date)
+        
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND conclusion IN ({placeholders})"
+            params.extend(conclusions)
 
         query += f" GROUP BY period_start ORDER BY period_start ASC"
 
@@ -272,7 +279,8 @@ class GHADatabase:
         return [dict(row) for row in rows]
 
     def get_job_metrics(self, owner: str, repo: str, workflow_id: str,
-                        start_date: datetime, end_date: datetime) -> List[Dict[str, Any]]:
+                        start_date: datetime, end_date: datetime,
+                        conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves aggregated metrics for each job within a workflow.
 
@@ -281,6 +289,7 @@ class GHADatabase:
         :param workflow_id: The workflow file name (e.g., 'ci.yml').
         :param start_date: The start date for filtering.
         :param end_date: The end date for filtering.
+        :param conclusions: Optional list of conclusion values to filter by (e.g., ['success', 'failure']).
         :return: A list of aggregated metrics per job name.
         """
         if not self.conn:
@@ -296,10 +305,271 @@ class GHADatabase:
             JOIN workflows w ON j.workflow_run_id = w.id
             WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
               AND w.created_at >= ? AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, start_date, end_date]
+        
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += """
             GROUP BY j.name
             ORDER BY j.name ASC
         """
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_existing_workflow_run_ids(self, owner: str, repo: str, workflow_id: str,
+                                      start_date: Optional[datetime] = None,
+                                      end_date: Optional[datetime] = None) -> set:
+        """
+        Retrieves a set of existing workflow run IDs from the database for the given parameters.
+        This is useful to avoid re-fetching data that already exists.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: Optional start date for filtering.
+        :param end_date: Optional end date for filtering.
+        :return: A set of workflow run IDs that already exist in the database.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = "SELECT id FROM workflows WHERE owner = ? AND repo = ? AND workflow_id = ?"
+        params = [owner, repo, workflow_id]
+
+        if start_date:
+            query += " AND created_at >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND created_at <= ?"
+            params.append(end_date)
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return {row[0] for row in rows}
+
+    def get_slowest_jobs(self, owner: str, repo: str, workflow_id: str,
+                        start_date: datetime, end_date: datetime,
+                        limit: int = 10,
+                        conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves the slowest jobs by P95 duration within a workflow.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param limit: Number of slowest jobs to return.
+        :param conclusions: Optional list of conclusion values to filter by.
+        :return: A list of slowest jobs with aggregated metrics.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = """
+            SELECT
+                j.name as job_name,
+                COUNT(j.id) as total_runs,
+                SUM(CASE WHEN j.conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                AVG(CASE WHEN j.conclusion = 'success' THEN j.duration_ms END) as avg_success_duration_ms,
+                GROUP_CONCAT(CASE WHEN j.conclusion = 'success' THEN j.duration_ms END) as success_durations_ms_list
+            FROM jobs j
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND w.created_at >= ? AND w.created_at <= ?
+        """
         params = [owner, repo, workflow_id, start_date, end_date]
+        
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += """
+            GROUP BY j.name
+            HAVING COUNT(CASE WHEN j.conclusion = 'success' THEN 1 END) > 0
+            ORDER BY avg_success_duration_ms DESC
+            LIMIT ?
+        """
+        params.append(limit)
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_step_metrics(self, owner: str, repo: str, workflow_id: str,
+                        start_date: datetime, end_date: datetime,
+                        job_name: Optional[str] = None,
+                        conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves aggregated metrics for steps, optionally filtered by job name.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param job_name: Optional job name to filter steps.
+        :param conclusions: Optional list of conclusion values to filter by.
+        :return: A list of aggregated metrics per step name.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = """
+            SELECT
+                s.name as step_name,
+                j.name as job_name,
+                COUNT(s.id) as total_runs,
+                SUM(CASE WHEN s.conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                AVG(s.duration_ms) as avg_duration_ms,
+                AVG(CASE WHEN s.conclusion = 'success' THEN s.duration_ms END) as avg_success_duration_ms,
+                GROUP_CONCAT(CASE WHEN s.conclusion = 'success' THEN s.duration_ms END) as success_durations_ms_list
+            FROM steps s
+            JOIN jobs j ON s.job_id = j.id
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND w.created_at >= ? AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, start_date, end_date]
+        
+        if job_name:
+            query += " AND j.name = ?"
+            params.append(job_name)
+        
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += """
+            GROUP BY s.name, j.name
+            ORDER BY avg_duration_ms DESC
+        """
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_slowest_steps(self, owner: str, repo: str, workflow_id: str,
+                         start_date: datetime, end_date: datetime,
+                         job_name: Optional[str] = None,
+                         limit: int = 10,
+                         conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves the slowest steps by average duration, optionally filtered by job.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param job_name: Optional job name to filter steps.
+        :param limit: Number of slowest steps to return.
+        :param conclusions: Optional list of conclusion values to filter by.
+        :return: A list of slowest steps with aggregated metrics.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = """
+            SELECT
+                s.name as step_name,
+                j.name as job_name,
+                COUNT(s.id) as total_runs,
+                SUM(CASE WHEN s.conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                AVG(CASE WHEN s.conclusion = 'success' THEN s.duration_ms END) as avg_success_duration_ms,
+                GROUP_CONCAT(CASE WHEN s.conclusion = 'success' THEN s.duration_ms END) as success_durations_ms_list
+            FROM steps s
+            JOIN jobs j ON s.job_id = j.id
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND w.created_at >= ? AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, start_date, end_date]
+        
+        if job_name:
+            query += " AND j.name = ?"
+            params.append(job_name)
+        
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += """
+            GROUP BY s.name, j.name
+            HAVING COUNT(CASE WHEN s.conclusion = 'success' THEN 1 END) > 0
+            ORDER BY avg_success_duration_ms DESC
+            LIMIT ?
+        """
+        params.append(limit)
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_job_time_series(self, owner: str, repo: str, workflow_id: str,
+                           job_name: str,
+                           start_date: datetime, end_date: datetime,
+                           period: str = 'day',
+                           conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves time-series metrics for a specific job.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param job_name: The job name to analyze.
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param period: The time period to group by ('day' or 'week').
+        :param conclusions: Optional list of conclusion values to filter by.
+        :return: A list of time-series metrics for the job.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        if period == 'day':
+            date_group = "strftime('%Y-%m-%d', w.created_at)"
+        elif period == 'week':
+            date_group = "date(w.created_at, '-' || strftime('%w', w.created_at) || ' days', '+1 day')"
+        else:
+            raise ValueError("Invalid period specified. Must be 'day' or 'week'.")
+
+        query = f"""
+            SELECT
+                {date_group} as period_start,
+                COUNT(j.id) as total_runs,
+                SUM(CASE WHEN j.conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                AVG(j.duration_ms) as avg_duration_ms,
+                AVG(CASE WHEN j.conclusion = 'success' THEN j.duration_ms END) as avg_success_duration_ms,
+                GROUP_CONCAT(CASE WHEN j.conclusion = 'success' THEN j.duration_ms END) as success_durations_ms_list
+            FROM jobs j
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND j.name = ?
+              AND w.created_at >= ? AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, job_name, start_date, end_date]
+        
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += f" GROUP BY period_start ORDER BY period_start ASC"
 
         cursor = self.conn.cursor()
         cursor.execute(query, params)

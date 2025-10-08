@@ -122,10 +122,10 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
 
     def test_calculate_run_statistics(self):
         runs = [
-            WorkflowRun(id=1, name="CI", status="completed", conclusion="success", created_at="2024-01-01T10:00:00Z", updated_at="2024-01-01T10:05:00Z", event="push", head_branch="main", run_number=1),
-            WorkflowRun(id=2, name="CI", status="completed", conclusion="failure", created_at="2024-01-01T11:00:00Z", updated_at="2024-01-01T11:06:00Z", event="push", head_branch="main", run_number=2),
-            WorkflowRun(id=3, name="CI", status="completed", conclusion="cancelled", created_at="2024-01-01T12:00:00Z", updated_at="2024-01-01T12:07:00Z", event="push", head_branch="main", run_number=3),
-            WorkflowRun(id=4, name="CI", status="completed", conclusion="success", created_at="2024-01-01T13:00:00Z", updated_at="2024-01-01T13:04:00Z", event="push", head_branch="main", run_number=4),
+            WorkflowRun(id=1, name="CI", status="completed", conclusion="success", created_at="2024-01-01T10:00:00Z", updated_at="2024-01-01T10:05:00Z", event="push", head_branch="main", run_number=1, duration_ms=300000),
+            WorkflowRun(id=2, name="CI", status="completed", conclusion="failure", created_at="2024-01-01T11:00:00Z", updated_at="2024-01-01T11:06:00Z", event="push", head_branch="main", run_number=2, duration_ms=360000),
+            WorkflowRun(id=3, name="CI", status="completed", conclusion="cancelled", created_at="2024-01-01T12:00:00Z", updated_at="2024-01-01T12:07:00Z", event="push", head_branch="main", run_number=3, duration_ms=420000),
+            WorkflowRun(id=4, name="CI", status="completed", conclusion="success", created_at="2024-01-01T13:00:00Z", updated_at="2024-01-01T13:04:00Z", event="push", head_branch="main", run_number=4, duration_ms=240000),
         ]
         metrics = self.calculator.calculate_run_statistics(runs)
         self.assertEqual(metrics.total_runs, 4)
@@ -216,7 +216,7 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
 
     def test_api_jobs(self):
         start_date = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
-        end_date = datetime(2024, 1, 2, 0, 0, tzinfo=timezone.utc)
+        end_date = datetime(2024, 1, 3, 0, 0, tzinfo=timezone.utc)
 
         job1 = Job(id=101, name="build", status="completed", conclusion="success", started_at=start_date, completed_at=start_date + timedelta(seconds=10), workflow_run_id=1)
         job2 = Job(id=102, name="test", status="completed", conclusion="success", started_at=start_date, completed_at=start_date + timedelta(seconds=20), workflow_run_id=1)
@@ -226,10 +226,10 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
         job4 = Job(id=202, name="test", status="completed", conclusion="failure", started_at=start_date, completed_at=start_date + timedelta(seconds=5), workflow_run_id=2)
         self._create_test_run(2, start_date + timedelta(hours=1), "failure", 20000, jobs=[job3, job4])
 
-        response = self.test_app.get(
-            f'/api/jobs?owner={self.owner}&repo={self.repo}&workflow_id={self.workflow_id}'
-            f'&start_date={start_date.isoformat()}&end_date={end_date.isoformat()}'
-        )
+        start_date_str = start_date.isoformat().replace('+00:00', 'Z')
+        end_date_str = end_date.isoformat().replace('+00:00', 'Z')
+        url = f'/api/jobs?owner={self.owner}&repo={self.repo}&workflow_id={self.workflow_id}&start_date={start_date_str}&end_date={end_date_str}'
+        response = self.test_app.get(url)
         self.assertEqual(response.status_code, 200)
         data = response.get_json()
         self.assertEqual(len(data), 2) # build and test jobs
@@ -239,7 +239,7 @@ class TestGitHubActionsPerformanceAnalyzer(unittest.TestCase):
 
         self.assertEqual(build_job_data['total_runs'], 2)
         self.assertEqual(build_job_data['success_rate'], 100.0)
-        self.assertEqual(build_job_data['p95_duration_ms'], 11800) # np.percentile([10000, 12000], 95)
+        self.assertEqual(build_job_data['p95_duration_ms'], 11900) # np.percentile([10000, 12000], 95)
 
         self.assertEqual(test_job_data['total_runs'], 2)
         self.assertEqual(test_job_data['success_rate'], 50.0)
