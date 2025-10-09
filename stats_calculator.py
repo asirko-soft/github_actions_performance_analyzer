@@ -26,6 +26,8 @@ class StatsCalculator:
                 metrics.cancelled_runs += 1
                 if run.duration_ms is not None:
                     total_durations["cancelled"].append(run.duration_ms)
+            elif run.conclusion == "skipped":
+                metrics.skipped_runs += 1
             else:
                 metrics.other_runs += 1
                 if run.duration_ms is not None:
@@ -43,9 +45,12 @@ class StatsCalculator:
         if total_durations["cancelled"]:
             metrics.avg_cancelled_duration_ms = sum(total_durations["cancelled"]) / len(total_durations["cancelled"])
 
-        # Failure rate
+        # Calculate rate percentages
         if metrics.total_runs > 0:
+            metrics.success_rate_percent = 100.0 * (metrics.successful_runs / metrics.total_runs)
             metrics.failure_rate_percent = 100.0 * (metrics.failed_runs / metrics.total_runs)
+            metrics.skip_rate_percent = 100.0 * (metrics.skipped_runs / metrics.total_runs)
+            metrics.cancellation_rate_percent = 100.0 * (metrics.cancelled_runs / metrics.total_runs)
 
         # Success min/max/percentiles
         if success_durations:
@@ -56,6 +61,15 @@ class StatsCalculator:
             metrics.success_p90_duration_ms = float(p90)
             metrics.success_p95_duration_ms = float(p95)
 
+        # Outlier detection (2 standard deviations from mean)
+        if len(success_durations) > 2:
+            mean = np.mean(success_durations)
+            std_dev = np.std(success_durations)
+            metrics.outlier_threshold_lower = float(mean - 2 * std_dev)
+            metrics.outlier_threshold_upper = float(mean + 2 * std_dev)
+            metrics.outlier_count = sum(1 for d in success_durations 
+                                       if d < metrics.outlier_threshold_lower or d > metrics.outlier_threshold_upper)
+
         return metrics
 
     def calculate_job_statistics(self, jobs: List[Job]) -> Dict[str, Any]:
@@ -64,6 +78,7 @@ class StatsCalculator:
             "successful_runs": 0,
             "failed_runs": 0,
             "cancelled_runs": 0,
+            "skipped_runs": 0,
             "other_runs": 0,
             "durations": defaultdict(list)
         })
@@ -76,6 +91,8 @@ class StatsCalculator:
                 job_stats[job.name]["failed_runs"] += 1
             elif job.conclusion == "cancelled":
                 job_stats[job.name]["cancelled_runs"] += 1
+            elif job.conclusion == "skipped":
+                job_stats[job.name]["skipped_runs"] += 1
             else:
                 job_stats[job.name]["other_runs"] += 1
             
@@ -90,13 +107,55 @@ class StatsCalculator:
                 else:
                     job_stats[job.name]["durations"]["other"].append(job.duration_ms)
 
-        # Calculate averages
+        # Calculate averages, percentiles, and rate percentages
         for job_name, stats in job_stats.items():
+            total_runs = stats["total_runs"]
+            
+            # Calculate rate percentages
+            if total_runs > 0:
+                stats["success_rate_percent"] = 100.0 * (stats["successful_runs"] / total_runs)
+                stats["failure_rate_percent"] = 100.0 * (stats["failed_runs"] / total_runs)
+                stats["skip_rate_percent"] = 100.0 * (stats["skipped_runs"] / total_runs)
+                stats["cancellation_rate_percent"] = 100.0 * (stats["cancelled_runs"] / total_runs)
+            else:
+                stats["success_rate_percent"] = 0.0
+                stats["failure_rate_percent"] = 0.0
+                stats["skip_rate_percent"] = 0.0
+                stats["cancellation_rate_percent"] = 0.0
+            
+            # Calculate averages and percentiles
             for status_type in ["all", "success", "failure", "cancelled", "other"]:
                 if stats["durations"][status_type]:
-                    stats[f"avg_{status_type}_duration_ms"] = sum(stats["durations"][status_type]) / len(stats["durations"][status_type])
+                    durations = stats["durations"][status_type]
+                    stats[f"avg_{status_type}_duration_ms"] = sum(durations) / len(durations)
+                    
+                    # Calculate percentiles for success durations
+                    if status_type == "success" and len(durations) > 0:
+                        p50, p95, p99 = np.percentile(durations, [50, 95, 99])
+                        stats["p50_duration_ms"] = float(p50)
+                        stats["p95_duration_ms"] = float(p95)
+                        stats["p99_duration_ms"] = float(p99)
                 else:
                     stats[f"avg_{status_type}_duration_ms"] = 0.0
+            
+            # Outlier detection for success durations (2 standard deviations from mean)
+            success_durations = stats["durations"]["success"]
+            if len(success_durations) > 2:
+                mean = np.mean(success_durations)
+                std_dev = np.std(success_durations)
+                outlier_threshold_lower = float(mean - 2 * std_dev)
+                outlier_threshold_upper = float(mean + 2 * std_dev)
+                outlier_count = sum(1 for d in success_durations 
+                                   if d < outlier_threshold_lower or d > outlier_threshold_upper)
+                
+                stats["outlier_count"] = outlier_count
+                stats["outlier_threshold_lower"] = outlier_threshold_lower
+                stats["outlier_threshold_upper"] = outlier_threshold_upper
+            else:
+                stats["outlier_count"] = 0
+                stats["outlier_threshold_lower"] = None
+                stats["outlier_threshold_upper"] = None
+            
             del stats["durations"] # Remove raw durations list
         return dict(job_stats)
 
@@ -106,6 +165,7 @@ class StatsCalculator:
             "successful_runs": 0,
             "failed_runs": 0,
             "cancelled_runs": 0,
+            "skipped_runs": 0,
             "other_runs": 0,
             "durations": defaultdict(list)
         })
@@ -119,6 +179,8 @@ class StatsCalculator:
                     step_stats[step.name]["failed_runs"] += 1
                 elif step.conclusion == "cancelled":
                     step_stats[step.name]["cancelled_runs"] += 1
+                elif step.conclusion == "skipped":
+                    step_stats[step.name]["skipped_runs"] += 1
                 else:
                     step_stats[step.name]["other_runs"] += 1
                 
@@ -133,13 +195,55 @@ class StatsCalculator:
                     else:
                         step_stats[step.name]["durations"]["other"].append(step.duration_ms)
 
-        # Calculate averages
+        # Calculate averages, percentiles, and rate percentages
         for step_name, stats in step_stats.items():
+            total_runs = stats["total_runs"]
+            
+            # Calculate rate percentages
+            if total_runs > 0:
+                stats["success_rate_percent"] = 100.0 * (stats["successful_runs"] / total_runs)
+                stats["failure_rate_percent"] = 100.0 * (stats["failed_runs"] / total_runs)
+                stats["skip_rate_percent"] = 100.0 * (stats["skipped_runs"] / total_runs)
+                stats["cancellation_rate_percent"] = 100.0 * (stats["cancelled_runs"] / total_runs)
+            else:
+                stats["success_rate_percent"] = 0.0
+                stats["failure_rate_percent"] = 0.0
+                stats["skip_rate_percent"] = 0.0
+                stats["cancellation_rate_percent"] = 0.0
+            
+            # Calculate averages and percentiles
             for status_type in ["all", "success", "failure", "cancelled", "other"]:
                 if stats["durations"][status_type]:
-                    stats[f"avg_{status_type}_duration_ms"] = sum(stats["durations"][status_type]) / len(stats["durations"][status_type])
+                    durations = stats["durations"][status_type]
+                    stats[f"avg_{status_type}_duration_ms"] = sum(durations) / len(durations)
+                    
+                    # Calculate percentiles for success durations
+                    if status_type == "success" and len(durations) > 0:
+                        p50, p95, p99 = np.percentile(durations, [50, 95, 99])
+                        stats["p50_duration_ms"] = float(p50)
+                        stats["p95_duration_ms"] = float(p95)
+                        stats["p99_duration_ms"] = float(p99)
                 else:
                     stats[f"avg_{status_type}_duration_ms"] = 0.0
+            
+            # Outlier detection for success durations (2 standard deviations from mean)
+            success_durations = stats["durations"]["success"]
+            if len(success_durations) > 2:
+                mean = np.mean(success_durations)
+                std_dev = np.std(success_durations)
+                outlier_threshold_lower = float(mean - 2 * std_dev)
+                outlier_threshold_upper = float(mean + 2 * std_dev)
+                outlier_count = sum(1 for d in success_durations 
+                                   if d < outlier_threshold_lower or d > outlier_threshold_upper)
+                
+                stats["outlier_count"] = outlier_count
+                stats["outlier_threshold_lower"] = outlier_threshold_lower
+                stats["outlier_threshold_upper"] = outlier_threshold_upper
+            else:
+                stats["outlier_count"] = 0
+                stats["outlier_threshold_lower"] = None
+                stats["outlier_threshold_upper"] = None
+            
             del stats["durations"] # Remove raw durations list
         return dict(step_stats)
 

@@ -23,10 +23,75 @@ def parse_iso8601(dt_str: str) -> datetime:
     return dt
 
 
-def aggregate_weekly_metrics(runs) -> dict:
+def filter_runs(runs, conclusions=None, exclude_statuses=None):
+    """
+    Filter workflow runs by conclusions and statuses.
+    
+    :param runs: List of WorkflowRun objects
+    :param conclusions: List of conclusions to include (e.g., ['success', 'failure'])
+    :param exclude_statuses: List of statuses to exclude (e.g., ['in_progress', 'queued'])
+    :return: Filtered list of runs
+    """
+    if exclude_statuses is None:
+        exclude_statuses = ['in_progress', 'queued']
+    
+    filtered = []
+    for run in runs:
+        # Exclude runs with NULL conclusion
+        if run.conclusion is None:
+            continue
+        
+        # Exclude runs with specified statuses
+        if exclude_statuses and run.status in exclude_statuses:
+            continue
+        
+        # Filter by conclusions if specified
+        if conclusions and run.conclusion not in conclusions:
+            continue
+        
+        filtered.append(run)
+    
+    return filtered
+
+
+def build_filter_description(conclusions=None, exclude_statuses=None):
+    """
+    Build a human-readable description of applied filters.
+    
+    :param conclusions: List of conclusions to include
+    :param exclude_statuses: List of statuses to exclude
+    :return: String description of filters
+    """
+    parts = []
+    
+    if conclusions:
+        conclusions_str = ', '.join(conclusions)
+        parts.append(f"Conclusions: {conclusions_str}")
+    
+    if exclude_statuses:
+        statuses_str = ', '.join(exclude_statuses)
+        parts.append(f"Excluded statuses: {statuses_str}")
+    elif exclude_statuses is None:
+        parts.append("Excluded statuses: in_progress, queued")
+    
+    return ' | '.join(parts) if parts else 'No filters applied'
+
+
+def aggregate_weekly_metrics(runs, conclusions=None, exclude_statuses=None) -> dict:
+    """
+    Group by ISO week and compute metrics via StatsCalculator per week.
+    
+    :param runs: List of WorkflowRun objects
+    :param conclusions: List of conclusions to include (e.g., ['success', 'failure'])
+    :param exclude_statuses: List of statuses to exclude (default: ['in_progress', 'queued'])
+    :return: Dictionary of weekly metrics
+    """
+    # Apply filters
+    filtered_runs = filter_runs(runs, conclusions, exclude_statuses)
+    
     # Group by ISO week and compute metrics via StatsCalculator per week
     weekly_runs = {}
-    for run in runs:
+    for run in filtered_runs:
         isoyear, isoweek, _ = run.created_at.isocalendar()
         key = (isoyear, isoweek)
         weekly_runs.setdefault(key, []).append(run)
@@ -38,10 +103,20 @@ def aggregate_weekly_metrics(runs) -> dict:
     return out
 
 
-def aggregate_weekly_metrics_by_outcome(runs) -> dict:
-    """Group runs by week and outcome, then compute metrics for each outcome separately."""
+def aggregate_weekly_metrics_by_outcome(runs, conclusions=None, exclude_statuses=None) -> dict:
+    """
+    Group runs by week and outcome, then compute metrics for each outcome separately.
+    
+    :param runs: List of WorkflowRun objects
+    :param conclusions: List of conclusions to include (e.g., ['success', 'failure'])
+    :param exclude_statuses: List of statuses to exclude (default: ['in_progress', 'queued'])
+    :return: Dictionary of weekly metrics by outcome
+    """
+    # Apply filters
+    filtered_runs = filter_runs(runs, conclusions, exclude_statuses)
+    
     weekly_by_outcome = {}
-    for run in runs:
+    for run in filtered_runs:
         isoyear, isoweek, _ = run.created_at.isocalendar()
         week_key = (isoyear, isoweek)
         outcome = run.conclusion or "other"
@@ -58,10 +133,20 @@ def aggregate_weekly_metrics_by_outcome(runs) -> dict:
     return out
 
 
-def aggregate_weekly_step_metrics(runs) -> dict:
-    """Group steps by week and step name, compute duration trends."""
+def aggregate_weekly_step_metrics(runs, conclusions=None, exclude_statuses=None) -> dict:
+    """
+    Group steps by week and step name, compute duration trends.
+    
+    :param runs: List of WorkflowRun objects
+    :param conclusions: List of conclusions to include (e.g., ['success', 'failure'])
+    :param exclude_statuses: List of statuses to exclude (default: ['in_progress', 'queued'])
+    :return: Dictionary of weekly step metrics
+    """
+    # Apply filters
+    filtered_runs = filter_runs(runs, conclusions, exclude_statuses)
+    
     weekly_steps = {}
-    for run in runs:
+    for run in filtered_runs:
         isoyear, isoweek, _ = run.created_at.isocalendar()
         week_key = (isoyear, isoweek)
         for job in run.jobs:
@@ -86,7 +171,17 @@ def aggregate_weekly_step_metrics(runs) -> dict:
     return out
 
 
-def plot_comparison(series_a: dict, series_b: dict, label_a: str, label_b: str, out_file: str):
+def plot_comparison(series_a: dict, series_b: dict, label_a: str, label_b: str, out_file: str, filter_desc: str = None):
+    """
+    Plot comparison of two time series with optional filter description.
+    
+    :param series_a: First time series data
+    :param series_b: Second time series data
+    :param label_a: Label for first series
+    :param label_b: Label for second series
+    :param out_file: Output file path
+    :param filter_desc: Description of applied filters
+    """
     # Build sorted union of week keys
     all_keys = sorted(set(series_a.keys()) | set(series_b.keys()))
     x_labels = [f"{y}-W{w:02d}" for (y, w) in all_keys]
@@ -95,13 +190,17 @@ def plot_comparison(series_a: dict, series_b: dict, label_a: str, label_b: str, 
         vals = []
         for k in all_keys:
             m = series.get(k)
-            vals.append(getattr(m, key) if m else 0.0)
+            # Use None for missing data points instead of 0.0
+            vals.append(getattr(m, key) if m else None)
         return vals
 
     # Metrics to plot: avg_duration_ms, avg_success_duration_ms, avg_failure_duration_ms, failure_rate_percent
     # Also success percentiles: p50, p90, p95
     fig, axes = plt.subplots(3, 2, figsize=(16, 12))
-    fig.suptitle('Week-over-Week Workflow Metrics Comparison')
+    title = 'Week-over-Week Workflow Metrics Comparison'
+    if filter_desc:
+        title += f'\n({filter_desc})'
+    fig.suptitle(title)
 
     plots = [
         ("avg_duration_ms", "Avg Run Duration (h:m)"),
@@ -126,8 +225,9 @@ def plot_comparison(series_a: dict, series_b: dict, label_a: str, label_b: str, 
         b_vals = extract(series_b, attr)
         if attr.endswith("_ms"):
             # convert ms -> minutes for better readability; axis will be formatted as Hh Mm
-            a_plot = [v / 60000.0 for v in a_vals]
-            b_plot = [v / 60000.0 for v in b_vals]
+            # Handle None values (missing data points)
+            a_plot = [v / 60000.0 if v is not None else None for v in a_vals]
+            b_plot = [v / 60000.0 if v is not None else None for v in b_vals]
         else:
             a_plot = a_vals
             b_plot = b_vals
@@ -146,7 +246,14 @@ def plot_comparison(series_a: dict, series_b: dict, label_a: str, label_b: str, 
     plt.close()
 
 
-def plot_single_series(series: dict, out_file: str):
+def plot_single_series(series: dict, out_file: str, filter_desc: str = None):
+    """
+    Plot a single time series with optional filter description.
+    
+    :param series: Time series data
+    :param out_file: Output file path
+    :param filter_desc: Description of applied filters
+    """
     all_keys = sorted(series.keys())
     x_labels = [f"{y}-W{w:02d}" for (y, w) in all_keys]
 
@@ -154,11 +261,15 @@ def plot_single_series(series: dict, out_file: str):
         vals = []
         for k in all_keys:
             m = series.get(k)
-            vals.append(getattr(m, attr) if m else 0.0)
+            # Use None for missing data points instead of 0.0
+            vals.append(getattr(m, attr) if m else None)
         return vals
 
     fig, axes = plt.subplots(3, 2, figsize=(16, 12))
-    fig.suptitle('Weekly Workflow Metrics')
+    title = 'Weekly Workflow Metrics'
+    if filter_desc:
+        title += f'\n({filter_desc})'
+    fig.suptitle(title)
 
     plots = [
         ("avg_duration_ms", "Avg Run Duration (h:m)"),
@@ -181,7 +292,8 @@ def plot_single_series(series: dict, out_file: str):
     for ax, (attr, ylabel) in zip(axes.flatten(), plots):
         vals = extract(attr)
         if attr.endswith("_ms"):
-            vals = [v / 60000.0 for v in vals]
+            # Handle None values (missing data points)
+            vals = [v / 60000.0 if v is not None else None for v in vals]
         ax.plot(x_labels, vals, marker='o')
         ax.set_ylabel(ylabel)
         if attr.endswith("_ms"):
@@ -195,8 +307,14 @@ def plot_single_series(series: dict, out_file: str):
     plt.close()
 
 
-def plot_trends_by_outcome(weekly_data: dict, out_file: str):
-    """Plot trends separated by outcome type (success/failure/cancelled)."""
+def plot_trends_by_outcome(weekly_data: dict, out_file: str, filter_desc: str = None):
+    """
+    Plot trends separated by outcome type (success/failure/cancelled).
+    
+    :param weekly_data: Weekly data grouped by outcome
+    :param out_file: Output file path
+    :param filter_desc: Description of applied filters
+    """
     all_weeks = sorted(weekly_data.keys())
     x_labels = [f"{y}-W{w:02d}" for (y, w) in all_weeks]
     
@@ -213,7 +331,10 @@ def plot_trends_by_outcome(weekly_data: dict, out_file: str):
         return f"{hours}h {minutes}m"
     
     fig, axes = plt.subplots(2, 2, figsize=(16, 10))
-    fig.suptitle('Weekly Performance Trends by Outcome Type')
+    title = 'Weekly Performance Trends by Outcome Type'
+    if filter_desc:
+        title += f'\n({filter_desc})'
+    fig.suptitle(title)
     
     # Plot 1: Average Duration by Outcome
     ax = axes[0, 0]
@@ -310,8 +431,15 @@ def plot_trends_by_outcome(weekly_data: dict, out_file: str):
     plt.close()
 
 
-def plot_step_trends(weekly_step_data: dict, top_n: int, out_file: str):
-    """Plot trends for top N slowest steps, separated by outcome."""
+def plot_step_trends(weekly_step_data: dict, top_n: int, out_file: str, filter_desc: str = None):
+    """
+    Plot trends for top N slowest steps, separated by outcome.
+    
+    :param weekly_step_data: Weekly step data grouped by outcome
+    :param top_n: Number of slowest steps to plot
+    :param out_file: Output file path
+    :param filter_desc: Description of applied filters
+    """
     # Find top N slowest steps by average duration across all weeks
     step_avg_durations = {}
     for week_data in weekly_step_data.values():
@@ -342,7 +470,10 @@ def plot_step_trends(weekly_step_data: dict, top_n: int, out_file: str):
     # Create subplots - 2 columns for top N/2 rows
     rows = (top_n + 1) // 2
     fig, axes = plt.subplots(rows, 2, figsize=(20, 4 * rows))
-    fig.suptitle(f'Top {top_n} Slowest Steps - Performance Trends by Outcome')
+    title = f'Top {top_n} Slowest Steps - Performance Trends by Outcome'
+    if filter_desc:
+        title += f'\n({filter_desc})'
+    fig.suptitle(title)
     
     if rows == 1:
         axes = [axes]  # Handle single row case
@@ -411,6 +542,10 @@ def main():
     parser.add_argument("--mode", type=str, choices=["combined", "overlay", "trends", "steps"], default="trends",
                         help="combined: one value per week; overlay: two series; trends: by outcome type; steps: step-level analysis")
     parser.add_argument("--top_steps", type=int, default=10, help="Number of slowest steps to analyze (for steps mode)")
+    parser.add_argument("--conclusions", type=str, default=None, 
+                        help="Comma-separated list of conclusions to include (e.g., 'success,failure')")
+    parser.add_argument("--exclude_statuses", type=str, default=None,
+                        help="Comma-separated list of statuses to exclude (default: 'in_progress,queued')")
 
     args = parser.parse_args()
 
@@ -428,6 +563,18 @@ def main():
     start_b = parse_iso8601(args.from_b)
     end_b = parse_iso8601(args.to_b)
 
+    # Parse filter parameters
+    conclusions = None
+    if args.conclusions:
+        conclusions = [c.strip() for c in args.conclusions.split(',')]
+    
+    exclude_statuses = None
+    if args.exclude_statuses:
+        exclude_statuses = [s.strip() for s in args.exclude_statuses.split(',')]
+    
+    # Build filter description for chart titles
+    filter_desc = build_filter_description(conclusions, exclude_statuses)
+
     # Collect both ranges
     runs_a = collector.collect_workflow_data(args.owner, args.repo, args.workflow_id, args.branch, start_a, end_a)
     runs_b = collector.collect_workflow_data(args.owner, args.repo, args.workflow_id, args.branch, start_b, end_b)
@@ -439,22 +586,25 @@ def main():
     all_runs = list(runs_by_id.values())
 
     if args.mode == "overlay":
-        series_a = aggregate_weekly_metrics(runs_a)
-        series_b = aggregate_weekly_metrics(runs_b)
-        plot_comparison(series_a, series_b, label_a=f"{args.from_a}..{args.to_a}", label_b=f"{args.from_b}..{args.to_b}", out_file=args.output)
+        series_a = aggregate_weekly_metrics(runs_a, conclusions, exclude_statuses)
+        series_b = aggregate_weekly_metrics(runs_b, conclusions, exclude_statuses)
+        plot_comparison(series_a, series_b, label_a=f"{args.from_a}..{args.to_a}", 
+                       label_b=f"{args.from_b}..{args.to_b}", out_file=args.output, 
+                       filter_desc=filter_desc)
     elif args.mode == "combined":
-        combined = aggregate_weekly_metrics(all_runs)
-        plot_single_series(combined, out_file=args.output)
+        combined = aggregate_weekly_metrics(all_runs, conclusions, exclude_statuses)
+        plot_single_series(combined, out_file=args.output, filter_desc=filter_desc)
     elif args.mode == "trends":
         # Analyze trends by outcome type (green vs green, red vs red)
-        weekly_by_outcome = aggregate_weekly_metrics_by_outcome(all_runs)
-        plot_trends_by_outcome(weekly_by_outcome, args.output)
+        weekly_by_outcome = aggregate_weekly_metrics_by_outcome(all_runs, conclusions, exclude_statuses)
+        plot_trends_by_outcome(weekly_by_outcome, args.output, filter_desc=filter_desc)
     elif args.mode == "steps":
         # Step-level performance analysis
-        weekly_step_data = aggregate_weekly_step_metrics(all_runs)
-        plot_step_trends(weekly_step_data, args.top_steps, args.output)
+        weekly_step_data = aggregate_weekly_step_metrics(all_runs, conclusions, exclude_statuses)
+        plot_step_trends(weekly_step_data, args.top_steps, args.output, filter_desc=filter_desc)
 
     print(f"Saved visualization to {args.output}")
+    print(f"Applied filters: {filter_desc}")
 
 
 if __name__ == "__main__":

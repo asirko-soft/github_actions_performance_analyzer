@@ -90,7 +90,8 @@ class DataCollector:
     def collect_workflow_data(self, owner: str, repo: str, workflow_id: str, 
                                   branch: Optional[str] = None, 
                                   start_date: Optional[datetime] = None, 
-                                  end_date: Optional[datetime] = None) -> int:
+                                  end_date: Optional[datetime] = None,
+                                  skip_incomplete: bool = False) -> Dict:
         """
         Fetches workflow run data from GitHub API in time-based batches and stores it in the database.
         This implements a "fresh start" batch-fetching strategy.
@@ -103,13 +104,16 @@ class DataCollector:
         :param branch: Optional branch name to filter runs.
         :param start_date: The start of the date range to fetch. Required.
         :param end_date: The end of the date range to fetch. Required.
-        :return: The total number of workflow runs collected and stored.
+        :param skip_incomplete: If True, skip workflows with status 'in_progress' or 'queued'.
+        :return: Dict with keys: runs_collected, runs_skipped, incomplete_runs_stored, incomplete_runs_skipped.
         """
         if not start_date or not end_date:
             raise ValueError("start_date and end_date are required for data ingestion.")
 
         total_runs_collected = 0
         total_runs_skipped = 0
+        incomplete_runs_stored = 0
+        incomplete_runs_skipped = 0
         
         # Get existing workflow run IDs from database to avoid re-fetching
         existing_run_ids = self.db.get_existing_workflow_run_ids(
@@ -143,11 +147,21 @@ class DataCollector:
 
             for raw_run in raw_workflow_runs:
                 run_id = raw_run.get("id")
+                run_status = raw_run.get("status")
                 
                 # Skip if this run already exists in the database
                 if run_id in existing_run_ids:
                     total_runs_skipped += 1
                     print(f"    Skipping workflow run ID {run_id} (already in database)")
+                    continue
+                
+                # Check if workflow is incomplete
+                is_incomplete = run_status in ['in_progress', 'queued']
+                
+                # Skip incomplete workflows if requested
+                if skip_incomplete and is_incomplete:
+                    incomplete_runs_skipped += 1
+                    print(f"    Skipping workflow run ID {run_id} (status: {run_status})")
                     continue
                 
                 try:
@@ -157,7 +171,13 @@ class DataCollector:
                     # Store the complete run object in the database
                     self.db.save_workflow_run(workflow_run, owner, repo, workflow_id)
                     total_runs_collected += 1
-                    print(f"    Stored workflow run ID: {workflow_run.id}")
+                    
+                    # Track incomplete workflows that were stored
+                    if is_incomplete:
+                        incomplete_runs_stored += 1
+                        print(f"    Stored workflow run ID: {workflow_run.id} (status: {run_status})")
+                    else:
+                        print(f"    Stored workflow run ID: {workflow_run.id}")
                 except Exception as e:
                     print(f"    Failed to process or store run ID {raw_run.get('id')}: {e}")
 
@@ -165,7 +185,17 @@ class DataCollector:
         
         print(f"\nTotal workflow runs collected and stored: {total_runs_collected}")
         print(f"Total workflow runs skipped (already in database): {total_runs_skipped}")
-        return total_runs_collected
+        if incomplete_runs_stored > 0:
+            print(f"Incomplete workflows stored (in_progress/queued): {incomplete_runs_stored}")
+        if incomplete_runs_skipped > 0:
+            print(f"Incomplete workflows skipped (in_progress/queued): {incomplete_runs_skipped}")
+        
+        return {
+            'runs_collected': total_runs_collected,
+            'runs_skipped': total_runs_skipped,
+            'incomplete_runs_stored': incomplete_runs_stored,
+            'incomplete_runs_skipped': incomplete_runs_skipped
+        }
 
 
 if __name__ == '__main__':
@@ -198,10 +228,10 @@ if __name__ == '__main__':
 
             print(f"Collecting data for workflow '{workflow_id}' from {start_date.isoformat()} to {end_date.isoformat()}")
             try:
-                runs_count = collector.collect_workflow_data(
+                result = collector.collect_workflow_data(
                     owner, repo, workflow_id, start_date=start_date, end_date=end_date
                 )
-                print(f"Successfully collected and stored data for {runs_count} workflow runs.")
+                print(f"Successfully collected and stored data for {result['runs_collected']} workflow runs.")
             except Exception as e:
                 print(f"An error occurred during data collection: {e}")
 

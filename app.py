@@ -1,12 +1,18 @@
 from flask import Flask, jsonify, request, render_template, Response
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import numpy as np
 
 from database import GHADatabase
 from report_exporter import ReportExporter
+from utils import generate_github_job_url, analyze_repl_build_steps
 
 app = Flask(__name__)
+
+# Configuration constants
+DEFAULT_EXCLUDE_STATUSES = ['in_progress', 'queued']
+ENABLE_FILTER_METADATA = True
+MAX_JOB_EXECUTIONS_LIMIT = 1000
 
 # In a real app, you might manage the DB connection differently (e.g., per-request context)
 # For simplicity, we'll create a new instance per request or use a global one.
@@ -26,6 +32,59 @@ def parse_date(date_str: Optional[str]) -> Optional[datetime]:
     except ValueError:
         return None
 
+
+def parse_conclusions_param(conclusions_param: Optional[str]) -> Optional[List[str]]:
+    """
+    Helper to parse comma-separated conclusions query parameter.
+    
+    :param conclusions_param: Comma-separated string of conclusions (e.g., 'success,failure')
+    :return: List of conclusion strings, or None if parameter is empty
+    """
+    if not conclusions_param:
+        return None
+    conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    return conclusions if conclusions else None
+
+
+def parse_exclude_statuses_param(exclude_statuses_param: Optional[str]) -> List[str]:
+    """
+    Helper to parse exclude_statuses parameter with default value.
+    
+    :param exclude_statuses_param: Comma-separated string of statuses to exclude
+    :return: List of status strings to exclude (defaults to ['in_progress', 'queued'])
+    """
+    if exclude_statuses_param is None:
+        return ['in_progress', 'queued']
+    
+    if exclude_statuses_param == '':
+        return []
+    
+    statuses = [s.strip() for s in exclude_statuses_param.split(',') if s.strip()]
+    return statuses
+
+
+def build_filter_metadata(conclusions: Optional[List[str]], exclude_statuses: List[str], 
+                         excluded_count: Optional[int] = None) -> Dict[str, Any]:
+    """
+    Helper to construct metadata dict with applied filters.
+    
+    :param conclusions: List of conclusion filters applied
+    :param exclude_statuses: List of excluded statuses
+    :param excluded_count: Number of records excluded by filters (optional)
+    :return: Dictionary containing filter metadata
+    """
+    metadata = {
+        "filters_applied": {
+            "conclusions": conclusions if conclusions else None,
+            "excluded_statuses": exclude_statuses if exclude_statuses else None
+        }
+    }
+    
+    if excluded_count is not None:
+        metadata["filters_applied"]["excluded_count"] = excluded_count
+    
+    return metadata
+
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
@@ -40,6 +99,8 @@ def get_workflows():
     - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
     - start_date (str, optional): ISO 8601 format (e.g., '2024-01-01T00:00:00Z').
     - end_date (str, optional): ISO 8601 format.
+    - conclusions (str, optional): Comma-separated list of conclusion values to filter by (e.g., 'success,failure').
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -50,6 +111,8 @@ def get_workflows():
 
     start_date = parse_date(request.args.get('start_date'))
     end_date = parse_date(request.args.get('end_date'))
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     try:
         with get_db() as db:
@@ -58,9 +121,26 @@ def get_workflows():
                 repo=repo,
                 workflow_id=workflow_id,
                 start_date=start_date,
-                end_date=end_date
+                end_date=end_date,
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
             )
+        
+        # Handle empty result sets with informative metadata
+        if not runs:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": "No workflow runs match the specified filters"
+                }
+            }), 200
+        
         return jsonify(runs)
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
@@ -78,6 +158,7 @@ def get_trends():
     - period (str, optional): 'day' or 'week'. Defaults to 'day'.
     - exclude_outliers (bool, optional): If true, exclude outliers from percentile and average success duration calculations.
     - conclusions (str, optional): Comma-separated list of conclusion values to filter by (e.g., 'success,failure').
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -90,12 +171,8 @@ def get_trends():
     end_date = parse_date(request.args.get('end_date'))
     period = request.args.get('period', 'day')
     exclude_outliers = request.args.get('exclude_outliers', 'false').lower() == 'true'
-    
-    # Parse conclusions filter
-    conclusions = None
-    conclusions_param = request.args.get('conclusions')
-    if conclusions_param:
-        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     if period not in ['day', 'week']:
         return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
@@ -105,7 +182,8 @@ def get_trends():
             trends_raw = db.get_time_series_metrics(
                 owner=owner, repo=repo, workflow_id=workflow_id,
                 start_date=start_date, end_date=end_date, period=period,
-                conclusions=conclusions
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
             )
 
         trends = []
@@ -164,7 +242,20 @@ def get_trends():
 
             trends.append(data)
 
-        return jsonify(trends)
+        # Include filter metadata in response
+        metadata = build_filter_metadata(conclusions, exclude_statuses)
+        
+        # Handle empty result sets with informative metadata
+        if not trends:
+            metadata["message"] = "No data matches the specified filters for the given time period"
+        
+        return jsonify({
+            "data": trends,
+            "metadata": metadata
+        })
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
@@ -180,6 +271,7 @@ def get_job_metrics():
     - start_date (str, required): ISO 8601 format.
     - end_date (str, required): ISO 8601 format.
     - conclusions (str, optional): Comma-separated list of conclusion values to filter by (e.g., 'success,failure').
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -196,18 +288,16 @@ def get_job_metrics():
     if not start_date or not end_date:
         return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
     
-    # Parse conclusions filter
-    conclusions = None
-    conclusions_param = request.args.get('conclusions')
-    if conclusions_param:
-        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     try:
         with get_db() as db:
             raw_metrics = db.get_job_metrics(
                 owner=owner, repo=repo, workflow_id=workflow_id,
                 start_date=start_date, end_date=end_date,
-                conclusions=conclusions
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
             )
 
         results = []
@@ -232,7 +322,21 @@ def get_job_metrics():
                 "p95_duration_ms": p95_duration_ms
             })
 
+        # Handle empty result sets with informative metadata
+        if not results:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": "No job metrics match the specified filters"
+                }
+            }), 200
+
         return jsonify(results)
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
@@ -254,12 +358,8 @@ def get_trends_csv():
     end_date = parse_date(request.args.get('end_date'))
     period = request.args.get('period', 'day')
     exclude_outliers = request.args.get('exclude_outliers', 'false').lower() == 'true'
-    
-    # Parse conclusions filter
-    conclusions = None
-    conclusions_param = request.args.get('conclusions')
-    if conclusions_param:
-        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     if period not in ['day', 'week']:
         return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
@@ -269,7 +369,8 @@ def get_trends_csv():
             trends_raw = db.get_time_series_metrics(
                 owner=owner, repo=repo, workflow_id=workflow_id,
                 start_date=start_date, end_date=end_date, period=period,
-                conclusions=conclusions
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
             )
 
         trends = []
@@ -327,14 +428,36 @@ def get_trends_csv():
 
             trends.append(data)
 
+        # Handle empty result sets
+        if not trends:
+            return jsonify({"error": "No data matches the specified filters for the given time period"}), 200
+
+        # Build filter metadata for CSV header
+        filter_metadata = {
+            "owner": owner,
+            "repo": repo,
+            "workflow_id": workflow_id,
+            "filters_applied": {
+                "conclusions": conclusions if conclusions else [],
+                "excluded_statuses": exclude_statuses if exclude_statuses else [],
+            },
+            "time_range": {
+                "start_date": start_date.isoformat() if start_date else None,
+                "end_date": end_date.isoformat() if end_date else None
+            }
+        }
+
         exporter = ReportExporter()
-        csv_string = exporter.export_to_csv_string(trends)
+        csv_string = exporter.export_to_csv_string(trends, filter_metadata)
 
         return Response(
             csv_string,
             mimetype="text/csv",
             headers={"Content-disposition": "attachment; filename=trends.csv"}
         )
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
@@ -351,6 +474,7 @@ def get_slowest_jobs():
     - end_date (str, required): ISO 8601 format.
     - limit (int, optional): Number of jobs to return (default 10).
     - conclusions (str, optional): Comma-separated list of conclusion values.
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -368,18 +492,16 @@ def get_slowest_jobs():
     if not start_date or not end_date:
         return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
     
-    # Parse conclusions filter
-    conclusions = None
-    conclusions_param = request.args.get('conclusions')
-    if conclusions_param:
-        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     try:
         with get_db() as db:
             raw_metrics = db.get_slowest_jobs(
                 owner=owner, repo=repo, workflow_id=workflow_id,
                 start_date=start_date, end_date=end_date,
-                limit=limit, conclusions=conclusions
+                limit=limit, conclusions=conclusions,
+                exclude_statuses=exclude_statuses
             )
 
         results = []
@@ -406,7 +528,21 @@ def get_slowest_jobs():
                 "p95_duration_ms": p95_duration_ms
             })
 
+        # Handle empty result sets with informative metadata
+        if not results:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": "No slowest jobs match the specified filters"
+                }
+            }), 200
+
         return jsonify(results)
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
@@ -424,6 +560,7 @@ def get_steps():
     - job_name (str, optional): Filter by job name.
     - limit (int, optional): Limit results (default: no limit).
     - conclusions (str, optional): Comma-separated list of conclusion values.
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -442,11 +579,8 @@ def get_steps():
     if not start_date or not end_date:
         return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
     
-    # Parse conclusions filter
-    conclusions = None
-    conclusions_param = request.args.get('conclusions')
-    if conclusions_param:
-        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     try:
         with get_db() as db:
@@ -455,13 +589,15 @@ def get_steps():
                     owner=owner, repo=repo, workflow_id=workflow_id,
                     start_date=start_date, end_date=end_date,
                     job_name=job_name, limit=int(limit),
-                    conclusions=conclusions
+                    conclusions=conclusions,
+                    exclude_statuses=exclude_statuses
                 )
             else:
                 raw_metrics = db.get_step_metrics(
                     owner=owner, repo=repo, workflow_id=workflow_id,
                     start_date=start_date, end_date=end_date,
-                    job_name=job_name, conclusions=conclusions
+                    job_name=job_name, conclusions=conclusions,
+                    exclude_statuses=exclude_statuses
                 )
 
         results = []
@@ -491,7 +627,21 @@ def get_steps():
                 "p95_duration_ms": p95_duration_ms
             })
 
+        # Handle empty result sets with informative metadata
+        if not results:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": "No step metrics match the specified filters"
+                }
+            }), 200
+
         return jsonify(results)
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
@@ -508,6 +658,7 @@ def get_job_trends(job_name):
     - end_date (str, required): ISO 8601 format.
     - period (str, optional): 'day' or 'week' (default 'day').
     - conclusions (str, optional): Comma-separated list of conclusion values.
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
     """
     owner = request.args.get('owner')
     repo = request.args.get('repo')
@@ -528,11 +679,8 @@ def get_job_trends(job_name):
     if period not in ['day', 'week']:
         return jsonify({"error": "Invalid 'period' parameter. Must be 'day' or 'week'."}), 400
     
-    # Parse conclusions filter
-    conclusions = None
-    conclusions_param = request.args.get('conclusions')
-    if conclusions_param:
-        conclusions = [c.strip() for c in conclusions_param.split(',') if c.strip()]
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
 
     try:
         with get_db() as db:
@@ -540,7 +688,8 @@ def get_job_trends(job_name):
                 owner=owner, repo=repo, workflow_id=workflow_id,
                 job_name=job_name,
                 start_date=start_date, end_date=end_date,
-                period=period, conclusions=conclusions
+                period=period, conclusions=conclusions,
+                exclude_statuses=exclude_statuses
             )
 
         trends = []
@@ -560,10 +709,291 @@ def get_job_trends(job_name):
 
             trends.append(data)
 
+        # Handle empty result sets with informative metadata
+        if not trends:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": "No job trend data matches the specified filters"
+                }
+            }), 200
+
         return jsonify(trends)
+    except ValueError as e:
+        # Handle invalid filter parameters
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/jobs/<job_name>/executions', methods=['GET'])
+def get_job_executions(job_name):
+    """
+    API endpoint to get individual job executions with GitHub links.
+    
+    Query Parameters:
+    - owner (str, required): Repository owner.
+    - repo (str, required): Repository name.
+    - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
+    - start_date (str, required): ISO 8601 format.
+    - end_date (str, required): ISO 8601 format.
+    - conclusions (str, optional): Comma-separated list of workflow conclusions to filter by.
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
+    - limit (int, optional): Number of executions to return.
+    - order_by (str, optional): Sort order - 'duration_desc', 'duration_asc', 'created_desc', 'created_asc' (default: 'duration_desc').
+    
+    Response:
+    [
+      {
+        "job_id": 12345,
+        "workflow_run_id": 67890,
+        "job_name": "REPL Tests",
+        "job_conclusion": "success",
+        "job_duration_ms": 180000,
+        "job_started_at": "2024-01-15T10:30:00Z",
+        "job_completed_at": "2024-01-15T10:33:00Z",
+        "workflow_conclusion": "success",
+        "created_at": "2024-01-15T10:30:00Z",
+        "github_url": "https://github.com/owner/repo/actions/runs/67890/job/12345"
+      },
+      ...
+    ]
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    limit_str = request.args.get('limit')
+    order_by = request.args.get('order_by', 'duration_desc')
+
+    if not all([owner, repo, workflow_id, start_date_str, end_date_str]):
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id, start_date, end_date"}), 400
+
+    start_date = parse_date(start_date_str)
+    end_date = parse_date(end_date_str)
+
+    if not start_date or not end_date:
+        return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
+    
+    # Parse limit parameter
+    limit = None
+    if limit_str:
+        try:
+            limit = int(limit_str)
+            if limit <= 0:
+                return jsonify({"error": "Limit must be a positive integer."}), 400
+        except ValueError:
+            return jsonify({"error": "Invalid limit parameter. Must be an integer."}), 400
+    
+    # Validate order_by parameter
+    valid_order_by = ['duration_desc', 'duration_asc', 'created_desc', 'created_asc']
+    if order_by not in valid_order_by:
+        return jsonify({"error": f"Invalid order_by parameter. Must be one of: {', '.join(valid_order_by)}"}), 400
+    
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
+
+    try:
+        with get_db() as db:
+            executions = db.get_job_executions_with_details(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                job_name=job_name,
+                start_date=start_date,
+                end_date=end_date,
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses,
+                limit=limit,
+                order_by=order_by
+            )
+        
+        # Generate GitHub URLs for each execution
+        results = []
+        for execution in executions:
+            result = dict(execution)
+            # Generate GitHub URL
+            result['github_url'] = generate_github_job_url(
+                result['owner'],
+                result['repo'],
+                result['workflow_run_id'],
+                result['job_id']
+            )
+            results.append(result)
+        
+        # Handle empty result sets with informative metadata
+        if not results:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": f"No job executions found for '{job_name}' matching the specified filters"
+                }
+            }), 200
+        
+        return jsonify(results)
+    except ValueError as e:
+        # Handle validation errors (e.g., invalid conclusions)
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/jobs/<job_name>/build-steps', methods=['GET'])
+def get_job_build_steps(job_name):
+    """
+    API endpoint to get aggregated build step metrics for REPL Tests jobs.
+    
+    Handles both legacy "Build apps" and new "Build linux-x64-*" patterns.
+    
+    Query Parameters:
+    - owner (str, required): Repository owner.
+    - repo (str, required): Repository name.
+    - workflow_id (str, required): Workflow file name (e.g., 'tests.yaml').
+    - start_date (str, required): ISO 8601 format.
+    - end_date (str, required): ISO 8601 format.
+    - conclusions (str, optional): Comma-separated list of workflow conclusions to filter by.
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
+    
+    Response:
+    [
+      {
+        "workflow_run_id": 67890,
+        "created_at": "2024-01-15T10:30:00Z",
+        "build_type": "legacy",  // or "multi_step" or "unknown"
+        "total_build_duration_ms": 120000,
+        "build_steps": [
+          {"step_name": "Build apps", "duration_ms": 120000, "step_conclusion": "success"}
+        ]
+      },
+      {
+        "workflow_run_id": 67891,
+        "created_at": "2024-01-16T11:00:00Z",
+        "build_type": "multi_step",
+        "total_build_duration_ms": 125000,
+        "build_steps": [
+          {"step_name": "Build linux-x64-app1", "duration_ms": 60000, "step_conclusion": "success"},
+          {"step_name": "Build linux-x64-app2", "duration_ms": 65000, "step_conclusion": "success"}
+        ]
+      }
+    ]
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+
+    if not all([owner, repo, workflow_id, start_date_str, end_date_str]):
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id, start_date, end_date"}), 400
+
+    start_date = parse_date(start_date_str)
+    end_date = parse_date(end_date_str)
+
+    if not start_date or not end_date:
+        return jsonify({"error": "Invalid date format. Please use ISO 8601 format."}), 400
+    
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
+
+    try:
+        with get_db() as db:
+            # Query for both legacy "Build apps" and new "Build linux-x64-%" patterns
+            # We'll query all steps and then filter/analyze them
+            legacy_steps = db.get_step_metrics_with_pattern(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                job_name=job_name,
+                step_pattern='Build apps',
+                start_date=start_date,
+                end_date=end_date,
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
+            )
+            
+            new_pattern_steps = db.get_step_metrics_with_pattern(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                job_name=job_name,
+                step_pattern='Build linux-x64-%',
+                start_date=start_date,
+                end_date=end_date,
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
+            )
+            
+            # Combine all steps
+            all_steps = legacy_steps + new_pattern_steps
+            
+            # Group steps by workflow_run_id
+            workflow_runs = {}
+            for step in all_steps:
+                run_id = step['workflow_run_id']
+                if run_id not in workflow_runs:
+                    workflow_runs[run_id] = {
+                        'workflow_run_id': run_id,
+                        'created_at': step['created_at'],
+                        'steps': []
+                    }
+                workflow_runs[run_id]['steps'].append({
+                    'name': step['step_name'],
+                    'duration_ms': step['duration_ms'],
+                    'step_conclusion': step['step_conclusion'],
+                    'step_started_at': step['step_started_at'],
+                    'step_completed_at': step['step_completed_at']
+                })
+            
+            # Analyze each workflow run's build steps
+            results = []
+            for run_id, run_data in workflow_runs.items():
+                analysis = analyze_repl_build_steps(run_data['steps'])
+                
+                # Format build_steps for response
+                formatted_steps = []
+                for step in analysis['build_steps']:
+                    formatted_steps.append({
+                        'step_name': step['name'],
+                        'duration_ms': step['duration_ms'],
+                        'step_conclusion': step.get('step_conclusion'),
+                        'step_started_at': step.get('step_started_at'),
+                        'step_completed_at': step.get('step_completed_at')
+                    })
+                
+                results.append({
+                    'workflow_run_id': run_data['workflow_run_id'],
+                    'created_at': run_data['created_at'],
+                    'build_type': analysis['build_type'],
+                    'total_build_duration_ms': analysis['total_build_duration_ms'],
+                    'build_steps': formatted_steps
+                })
+            
+            # Sort by created_at descending (most recent first)
+            results.sort(key=lambda x: x['created_at'], reverse=True)
+            
+            # Handle empty result sets with informative metadata
+            if not results:
+                metadata = build_filter_metadata(conclusions, exclude_statuses)
+                return jsonify({
+                    "data": [],
+                    "metadata": {
+                        **metadata,
+                        "message": f"No build steps found for '{job_name}' matching the specified filters"
+                    }
+                }), 200
+            
+            return jsonify(results)
+    except ValueError as e:
+        # Handle validation errors (e.g., invalid conclusions)
+        return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, port=5001)

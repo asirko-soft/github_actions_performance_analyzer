@@ -5,6 +5,27 @@ from datetime import datetime
 
 from data_models import WorkflowRun
 
+def validate_conclusions(conclusions: Optional[List[str]]) -> Optional[List[str]]:
+    """
+    Validates conclusion filter values against the allowed set.
+    
+    :param conclusions: List of conclusion values to validate
+    :return: The validated conclusions list, or None if input is None
+    :raises ValueError: If any conclusion value is invalid
+    """
+    if not conclusions:
+        return None
+    
+    valid_conclusions = {'success', 'failure', 'cancelled', 'skipped', 'action_required'}
+    invalid = set(conclusions) - valid_conclusions
+    
+    if invalid:
+        raise ValueError(f"Invalid conclusions: {invalid}. "
+                        f"Valid values: {valid_conclusions}")
+    
+    return conclusions
+
+
 class GHADatabase:
     """Manages all database interactions for the GHA Performance Analyzer."""
 
@@ -100,6 +121,12 @@ class GHADatabase:
         CREATE INDEX IF NOT EXISTS idx_workflows_created ON workflows(created_at);
         CREATE INDEX IF NOT EXISTS idx_jobs_workflow ON jobs(workflow_run_id);
         CREATE INDEX IF NOT EXISTS idx_steps_job ON steps(job_id);
+        
+        -- Additional indexes for filtering support
+        CREATE INDEX IF NOT EXISTS idx_workflows_status_conclusion 
+            ON workflows(owner, repo, workflow_id, status, conclusion, created_at);
+        CREATE INDEX IF NOT EXISTS idx_jobs_conclusion ON jobs(workflow_run_id, conclusion);
+        CREATE INDEX IF NOT EXISTS idx_steps_name ON steps(job_id, name);
         """
 
         try:
@@ -183,7 +210,9 @@ class GHADatabase:
 
     def get_workflow_runs(self, owner: str, repo: str, workflow_id: str,
                           start_date: Optional[datetime] = None,
-                          end_date: Optional[datetime] = None) -> List[Dict[str, Any]]:
+                          end_date: Optional[datetime] = None,
+                          conclusions: Optional[List[str]] = None,
+                          exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves workflow runs from the database with optional date filtering.
 
@@ -192,13 +221,33 @@ class GHADatabase:
         :param workflow_id: The workflow file name (e.g., 'ci.yml').
         :param start_date: Optional start date for filtering.
         :param end_date: Optional end date for filtering.
+        :param conclusions: Optional list of conclusions to filter by (e.g., ['success', 'failure']).
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of workflow runs, where each run is a dictionary.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
 
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
+
         query = "SELECT * FROM workflows WHERE owner = ? AND repo = ? AND workflow_id = ?"
         params = [owner, repo, workflow_id]
+
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND conclusion IN ({placeholders})"
+            params.extend(conclusions)
 
         if start_date:
             query += " AND created_at >= ?"
@@ -218,7 +267,8 @@ class GHADatabase:
                                 start_date: Optional[datetime] = None,
                                 end_date: Optional[datetime] = None,
                                 period: str = 'day',
-                                conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                                conclusions: Optional[List[str]] = None,
+                                exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves time-series aggregated metrics for workflow runs.
 
@@ -229,10 +279,14 @@ class GHADatabase:
         :param end_date: Optional end date for filtering.
         :param period: The time period to group by ('day' or 'week').
         :param conclusions: Optional list of conclusion values to filter by (e.g., ['success', 'failure']).
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of aggregated metrics, where each item is a dictionary.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
 
         if period == 'day':
             date_group = "strftime('%Y-%m-%d', created_at)"
@@ -259,17 +313,27 @@ class GHADatabase:
         """
         params = [owner, repo, workflow_id]
 
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND conclusion IN ({placeholders})"
+            params.extend(conclusions)
+
         if start_date:
             query += " AND created_at >= ?"
             params.append(start_date)
         if end_date:
             query += " AND created_at <= ?"
             params.append(end_date)
-        
-        if conclusions:
-            placeholders = ','.join('?' * len(conclusions))
-            query += f" AND conclusion IN ({placeholders})"
-            params.extend(conclusions)
 
         query += f" GROUP BY period_start ORDER BY period_start ASC"
 
@@ -280,7 +344,8 @@ class GHADatabase:
 
     def get_job_metrics(self, owner: str, repo: str, workflow_id: str,
                         start_date: datetime, end_date: datetime,
-                        conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                        conclusions: Optional[List[str]] = None,
+                        exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves aggregated metrics for each job within a workflow.
 
@@ -290,10 +355,14 @@ class GHADatabase:
         :param start_date: The start date for filtering.
         :param end_date: The end date for filtering.
         :param conclusions: Optional list of conclusion values to filter by (e.g., ['success', 'failure']).
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of aggregated metrics per job name.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
 
         query = """
             SELECT
@@ -308,6 +377,16 @@ class GHADatabase:
         """
         params = [owner, repo, workflow_id, start_date, end_date]
         
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
         if conclusions:
             placeholders = ','.join('?' * len(conclusions))
             query += f" AND w.conclusion IN ({placeholders})"
@@ -358,7 +437,8 @@ class GHADatabase:
     def get_slowest_jobs(self, owner: str, repo: str, workflow_id: str,
                         start_date: datetime, end_date: datetime,
                         limit: int = 10,
-                        conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                        conclusions: Optional[List[str]] = None,
+                        exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves the slowest jobs by P95 duration within a workflow.
 
@@ -369,10 +449,14 @@ class GHADatabase:
         :param end_date: The end date for filtering.
         :param limit: Number of slowest jobs to return.
         :param conclusions: Optional list of conclusion values to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of slowest jobs with aggregated metrics.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
 
         query = """
             SELECT
@@ -388,6 +472,16 @@ class GHADatabase:
         """
         params = [owner, repo, workflow_id, start_date, end_date]
         
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
         if conclusions:
             placeholders = ','.join('?' * len(conclusions))
             query += f" AND w.conclusion IN ({placeholders})"
@@ -409,7 +503,8 @@ class GHADatabase:
     def get_step_metrics(self, owner: str, repo: str, workflow_id: str,
                         start_date: datetime, end_date: datetime,
                         job_name: Optional[str] = None,
-                        conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                        conclusions: Optional[List[str]] = None,
+                        exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves aggregated metrics for steps, optionally filtered by job name.
 
@@ -420,10 +515,14 @@ class GHADatabase:
         :param end_date: The end date for filtering.
         :param job_name: Optional job name to filter steps.
         :param conclusions: Optional list of conclusion values to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of aggregated metrics per step name.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
 
         query = """
             SELECT
@@ -442,10 +541,20 @@ class GHADatabase:
         """
         params = [owner, repo, workflow_id, start_date, end_date]
         
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
         if job_name:
             query += " AND j.name = ?"
             params.append(job_name)
         
+        # Filter by conclusions
         if conclusions:
             placeholders = ','.join('?' * len(conclusions))
             query += f" AND w.conclusion IN ({placeholders})"
@@ -465,7 +574,8 @@ class GHADatabase:
                          start_date: datetime, end_date: datetime,
                          job_name: Optional[str] = None,
                          limit: int = 10,
-                         conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                         conclusions: Optional[List[str]] = None,
+                         exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves the slowest steps by average duration, optionally filtered by job.
 
@@ -477,10 +587,14 @@ class GHADatabase:
         :param job_name: Optional job name to filter steps.
         :param limit: Number of slowest steps to return.
         :param conclusions: Optional list of conclusion values to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of slowest steps with aggregated metrics.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
 
         query = """
             SELECT
@@ -498,10 +612,20 @@ class GHADatabase:
         """
         params = [owner, repo, workflow_id, start_date, end_date]
         
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
         if job_name:
             query += " AND j.name = ?"
             params.append(job_name)
         
+        # Filter by conclusions
         if conclusions:
             placeholders = ','.join('?' * len(conclusions))
             query += f" AND w.conclusion IN ({placeholders})"
@@ -524,7 +648,8 @@ class GHADatabase:
                            job_name: str,
                            start_date: datetime, end_date: datetime,
                            period: str = 'day',
-                           conclusions: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                           conclusions: Optional[List[str]] = None,
+                           exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """
         Retrieves time-series metrics for a specific job.
 
@@ -536,10 +661,14 @@ class GHADatabase:
         :param end_date: The end date for filtering.
         :param period: The time period to group by ('day' or 'week').
         :param conclusions: Optional list of conclusion values to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
         :return: A list of time-series metrics for the job.
         """
         if not self.conn:
             raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
 
         if period == 'day':
             date_group = "strftime('%Y-%m-%d', w.created_at)"
@@ -564,12 +693,179 @@ class GHADatabase:
         """
         params = [owner, repo, workflow_id, job_name, start_date, end_date]
         
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
         if conclusions:
             placeholders = ','.join('?' * len(conclusions))
             query += f" AND w.conclusion IN ({placeholders})"
             params.extend(conclusions)
         
         query += f" GROUP BY period_start ORDER BY period_start ASC"
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_job_executions_with_details(self, owner: str, repo: str, workflow_id: str,
+                                       job_name: str,
+                                       start_date: datetime, end_date: datetime,
+                                       conclusions: Optional[List[str]] = None,
+                                       exclude_statuses: Optional[List[str]] = None,
+                                       limit: Optional[int] = None,
+                                       order_by: str = 'duration_desc') -> List[Dict[str, Any]]:
+        """
+        Retrieves individual job executions with workflow context for GitHub URL generation.
+        
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param job_name: The job name to filter by.
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param conclusions: Optional list of workflow conclusions to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
+        :param limit: Optional limit on number of results.
+        :param order_by: Sort order - 'duration_desc', 'duration_asc', 'created_desc', 'created_asc'.
+        :return: List of dicts with keys: job_id, workflow_run_id, job_name, job_conclusion,
+                 job_duration_ms, job_started_at, job_completed_at, workflow_conclusion, 
+                 created_at, owner, repo
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
+
+        # Validate order_by parameter
+        valid_order_by = {
+            'duration_desc': 'j.duration_ms DESC',
+            'duration_asc': 'j.duration_ms ASC',
+            'created_desc': 'w.created_at DESC',
+            'created_asc': 'w.created_at ASC'
+        }
+        if order_by not in valid_order_by:
+            raise ValueError(f"Invalid order_by value: {order_by}. "
+                           f"Valid values: {list(valid_order_by.keys())}")
+
+        query = """
+            SELECT
+                j.id as job_id,
+                j.workflow_run_id,
+                j.name as job_name,
+                j.conclusion as job_conclusion,
+                j.duration_ms as job_duration_ms,
+                j.started_at as job_started_at,
+                j.completed_at as job_completed_at,
+                w.conclusion as workflow_conclusion,
+                w.created_at,
+                w.owner,
+                w.repo
+            FROM jobs j
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND j.name = ?
+              AND w.created_at >= ? AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, job_name, start_date, end_date]
+        
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        # Add ordering
+        query += f" ORDER BY {valid_order_by[order_by]}"
+        
+        # Add limit if specified
+        if limit:
+            query += " LIMIT ?"
+            params.append(limit)
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
+    def get_step_metrics_with_pattern(self, owner: str, repo: str, workflow_id: str,
+                                     job_name: str,
+                                     step_pattern: str,
+                                     start_date: datetime, end_date: datetime,
+                                     conclusions: Optional[List[str]] = None,
+                                     exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves step metrics matching a SQL LIKE pattern.
+        
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param job_name: The job name to filter by.
+        :param step_pattern: SQL LIKE pattern (e.g., 'Build linux-x64-%').
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param conclusions: Optional list of workflow conclusions to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
+        :return: List of step metrics grouped by workflow_run_id and step_name.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
+
+        query = """
+            SELECT
+                w.id as workflow_run_id,
+                w.created_at,
+                s.name as step_name,
+                s.duration_ms,
+                s.conclusion as step_conclusion,
+                s.started_at as step_started_at,
+                s.completed_at as step_completed_at
+            FROM steps s
+            JOIN jobs j ON s.job_id = j.id
+            JOIN workflows w ON j.workflow_run_id = w.id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND j.name = ?
+              AND s.name LIKE ?
+              AND w.created_at >= ? AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, job_name, step_pattern, start_date, end_date]
+        
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += " ORDER BY w.created_at DESC, s.name ASC"
 
         cursor = self.conn.cursor()
         cursor.execute(query, params)

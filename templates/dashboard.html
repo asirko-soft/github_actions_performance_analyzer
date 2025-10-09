@@ -704,8 +704,9 @@
                         const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
                     }
-                    const data = await response.json();
-                    console.log("Job drilldown data:", data);
+                    const responseData = await response.json();
+                    console.log("Job drilldown data:", responseData);
+                    const data = responseData.data || responseData;
                     renderJobDrilldownChart(data);
                 } catch (error) {
                     console.error("Failed to load job drilldown data:", error);
@@ -813,8 +814,9 @@
                         const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
                     }
-                    const data = await response.json();
-                    console.log("Slowest jobs data:", data);
+                    const responseData = await response.json();
+                    console.log("Slowest jobs data:", responseData);
+                    const data = responseData.data || responseData;
                     renderSlowestJobsChart(data);
                 } catch (error) {
                     console.error("Failed to load slowest jobs:", error);
@@ -942,8 +944,9 @@
                         const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
                     }
-                    const data = await response.json();
-                    console.log("Steps data:", data);
+                    const responseData = await response.json();
+                    console.log("Steps data:", responseData);
+                    const data = responseData.data || responseData;
                     renderStepDrilldownChart(data);
                 } catch (error) {
                     console.error("Failed to load steps:", error);
@@ -1062,8 +1065,9 @@
                         const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
                     }
-                    const data = await response.json();
-                    console.log("Job trends data:", data);
+                    const responseData = await response.json();
+                    console.log("Job trends data:", responseData);
+                    const data = responseData.data || responseData;
                     renderJobTrendChart(data);
                 } catch (error) {
                     console.error("Failed to load job trends:", error);
@@ -1192,9 +1196,11 @@
                         const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
                     }
-                    const data = await response.json();
+                    const responseData = await response.json();
 
-                    console.log("API Response Data:", data);
+                    console.log("API Response Data:", responseData);
+                    // Extract the data array from the response (API returns {data: [...], metadata: {...}})
+                    const data = responseData.data || responseData;
                     currentTrendsData = data;
                     
                     renderSummaryMetrics(data);

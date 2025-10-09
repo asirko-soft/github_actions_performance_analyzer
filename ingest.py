@@ -20,6 +20,8 @@ def main():
     parser.add_argument("--weeks", type=int, default=4, help="Number of past weeks of data to ingest.")
     parser.add_argument("--force-refresh", action="store_true",
                         help="Clear all existing data from the database before ingesting.")
+    parser.add_argument("--skip-incomplete", action="store_true",
+                        help="Skip ingesting workflows with status 'in_progress' or 'queued'.")
 
     args = parser.parse_args()
 
@@ -49,13 +51,20 @@ def main():
             start_date = end_date - timedelta(weeks=args.weeks)
 
             print(f"Collecting data for the past {args.weeks} weeks (from {start_date.isoformat()} to {end_date.isoformat()})")
+            if args.skip_incomplete:
+                print("Skip incomplete workflows option enabled. Workflows with status 'in_progress' or 'queued' will be skipped.")
 
-            runs_count = collector.collect_workflow_data(
+            result = collector.collect_workflow_data(
                 owner=args.owner, repo=args.repo, workflow_id=args.workflow_id,
-                start_date=start_date, end_date=end_date
+                start_date=start_date, end_date=end_date,
+                skip_incomplete=args.skip_incomplete
             )
 
-            print(f"\nIngestion complete. Successfully collected and stored data for {runs_count} workflow runs.")
+            print(f"\nIngestion complete. Successfully collected and stored data for {result['runs_collected']} workflow runs.")
+            if result['incomplete_runs_stored'] > 0:
+                print(f"Note: {result['incomplete_runs_stored']} incomplete workflow(s) (in_progress/queued) were stored.")
+            if result['incomplete_runs_skipped'] > 0:
+                print(f"Skipped {result['incomplete_runs_skipped']} incomplete workflow(s) (in_progress/queued).")
 
     except Exception as e:
         print(f"An error occurred during data ingestion: {e}")
