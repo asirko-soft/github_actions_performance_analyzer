@@ -289,27 +289,33 @@ class GHADatabase:
         conclusions = validate_conclusions(conclusions)
 
         if period == 'day':
-            date_group = "strftime('%Y-%m-%d', created_at)"
+            date_group = "strftime('%Y-%m-%d', w.created_at)"
         elif period == 'week':
             # Return the date of the Monday of that week for easier processing on the frontend.
             # %w is day of week, 0=Sunday. For a Monday-starting week, this calculates the preceding Monday.
-            date_group = "date(created_at, '-' || strftime('%w', created_at) || ' days', '+1 day')"
+            date_group = "date(w.created_at, '-' || strftime('%w', w.created_at) || ' days', '+1 day')"
         else:
             raise ValueError("Invalid period specified. Must be 'day' or 'week'.")
 
         query = f"""
             SELECT
                 {date_group} as period_start,
-                COUNT(*) as total_runs,
-                SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
-                SUM(CASE WHEN conclusion = 'failure' THEN 1 ELSE 0 END) as failed_runs,
-                SUM(CASE WHEN conclusion = 'cancelled' THEN 1 ELSE 0 END) as cancelled_runs,
-                AVG(duration_ms) as avg_duration_ms,
-                AVG(CASE WHEN conclusion = 'success' THEN duration_ms END) as avg_success_duration_ms,
-                GROUP_CONCAT(CASE WHEN conclusion = 'success' THEN duration_ms END) as success_durations_ms_list,
-                GROUP_CONCAT(duration_ms) as all_durations_ms_list
-            FROM workflows
-            WHERE owner = ? AND repo = ? AND workflow_id = ?
+                COUNT(DISTINCT w.id) as total_runs,
+                SUM(CASE WHEN w.conclusion = 'success' THEN 1 ELSE 0 END) as successful_runs,
+                SUM(CASE WHEN w.conclusion = 'failure' THEN 1 ELSE 0 END) as failed_runs,
+                SUM(CASE WHEN w.conclusion = 'cancelled' THEN 1 ELSE 0 END) as cancelled_runs,
+                AVG(job_durations.max_job_duration) as avg_duration_ms,
+                AVG(CASE WHEN w.conclusion = 'success' THEN job_durations.max_job_duration END) as avg_success_duration_ms,
+                GROUP_CONCAT(CASE WHEN w.conclusion = 'success' THEN job_durations.max_job_duration END) as success_durations_ms_list,
+                GROUP_CONCAT(job_durations.max_job_duration) as all_durations_ms_list
+            FROM workflows w
+            LEFT JOIN (
+                SELECT workflow_run_id, MAX(duration_ms) as max_job_duration
+                FROM jobs
+                WHERE duration_ms IS NOT NULL
+                GROUP BY workflow_run_id
+            ) job_durations ON w.id = job_durations.workflow_run_id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
         """
         params = [owner, repo, workflow_id]
 
@@ -317,22 +323,22 @@ class GHADatabase:
         if exclude_statuses is None:
             exclude_statuses = ['in_progress', 'queued']
         if exclude_statuses:
-            query += " AND conclusion IS NOT NULL"
+            query += " AND w.conclusion IS NOT NULL"
             placeholders = ','.join('?' * len(exclude_statuses))
-            query += f" AND status NOT IN ({placeholders})"
+            query += f" AND w.status NOT IN ({placeholders})"
             params.extend(exclude_statuses)
 
         # Filter by conclusions
         if conclusions:
             placeholders = ','.join('?' * len(conclusions))
-            query += f" AND conclusion IN ({placeholders})"
+            query += f" AND w.conclusion IN ({placeholders})"
             params.extend(conclusions)
 
         if start_date:
-            query += " AND created_at >= ?"
+            query += " AND w.created_at >= ?"
             params.append(start_date)
         if end_date:
-            query += " AND created_at <= ?"
+            query += " AND w.created_at <= ?"
             params.append(end_date)
 
         query += f" GROUP BY period_start ORDER BY period_start ASC"
@@ -871,6 +877,74 @@ class GHADatabase:
         cursor.execute(query, params)
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+
+    def get_workflow_job_based_durations(self, owner: str, repo: str, workflow_id: str,
+                                        start_date: Optional[datetime] = None,
+                                        end_date: Optional[datetime] = None,
+                                        conclusions: Optional[List[str]] = None,
+                                        exclude_statuses: Optional[List[str]] = None) -> List[int]:
+        """
+        Returns list of job-based workflow durations (max job duration per workflow).
+        
+        This method calculates workflow duration by taking the maximum job duration
+        within each workflow run, which provides accurate performance metrics that
+        aren't distorted by re-runs or idle time between job executions.
+        
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: Optional start date for filtering.
+        :param end_date: Optional end date for filtering.
+        :param conclusions: Optional list of conclusion values to filter by (e.g., ['success', 'failure']).
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
+        :return: A list of workflow durations in milliseconds (integers).
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
+
+        query = """
+            SELECT MAX(j.duration_ms) as max_job_duration
+            FROM workflows w
+            LEFT JOIN jobs j ON w.id = j.workflow_run_id
+            WHERE w.owner = ? AND w.repo = ? AND w.workflow_id = ?
+              AND j.duration_ms IS NOT NULL
+        """
+        params = [owner, repo, workflow_id]
+
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+
+        if start_date:
+            query += " AND w.created_at >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND w.created_at <= ?"
+            params.append(end_date)
+
+        query += " GROUP BY w.id HAVING max_job_duration IS NOT NULL"
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        # Extract durations as a list of integers
+        durations = [int(row['max_job_duration']) for row in rows if row['max_job_duration'] is not None]
+        return durations
 
 if __name__ == '__main__':
     # Example usage: create and initialize the database

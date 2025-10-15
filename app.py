@@ -89,6 +89,91 @@ def build_filter_metadata(conclusions: Optional[List[str]], exclude_statuses: Li
 def dashboard():
     return render_template('dashboard.html')
 
+@app.route('/api/overall-metrics', methods=['GET'])
+def get_overall_metrics():
+    """
+    API endpoint to get overall metrics including job-based P95 duration.
+    
+    Query Parameters:
+    - owner (str, required): Repository owner.
+    - repo (str, required): Repository name.
+    - workflow_id (str, required): Workflow file name (e.g., 'ci.yml').
+    - start_date (str, optional): ISO 8601 start date for filtering.
+    - end_date (str, optional): ISO 8601 end date for filtering.
+    - conclusions (str, optional): Comma-separated list of conclusions to include (e.g., 'success,failure').
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued').
+    
+    Returns:
+    - JSON object with overall metrics:
+      - total_runs: Total number of workflow runs
+      - successful_runs: Number of successful runs
+      - success_rate: Success rate as a percentage
+      - p95_duration_ms: Overall P95 duration calculated from job-based durations
+    """
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    
+    if not owner or not repo or not workflow_id:
+        return jsonify({"error": "Missing required parameters: owner, repo, workflow_id"}), 400
+    
+    start_date = parse_date(request.args.get('start_date'))
+    end_date = parse_date(request.args.get('end_date'))
+    
+    conclusions_str = request.args.get('conclusions')
+    conclusions = conclusions_str.split(',') if conclusions_str else None
+    
+    exclude_statuses_str = request.args.get('exclude_statuses')
+    exclude_statuses = exclude_statuses_str.split(',') if exclude_statuses_str else DEFAULT_EXCLUDE_STATUSES
+    
+    try:
+        with get_db() as db:
+            # Get total runs and successful runs
+            workflows = db.get_workflow_runs(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                start_date=start_date,
+                end_date=end_date,
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
+            )
+            
+            total_runs = len(workflows)
+            successful_runs = sum(1 for w in workflows if w.get('conclusion') == 'success')
+            success_rate = (successful_runs / total_runs * 100.0) if total_runs > 0 else 0.0
+            
+            # Get job-based durations for successful runs only
+            job_based_durations = db.get_workflow_job_based_durations(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                start_date=start_date,
+                end_date=end_date,
+                conclusions=['success'],
+                exclude_statuses=exclude_statuses
+            )
+            
+            # Calculate P95 from job-based durations
+            p95_duration_ms = None
+            if len(job_based_durations) > 0:
+                p95 = np.percentile(job_based_durations, 95)
+                p95_duration_ms = int(p95)
+            
+            return jsonify({
+                "total_runs": total_runs,
+                "successful_runs": successful_runs,
+                "success_rate": round(success_rate, 1),
+                "p95_duration_ms": p95_duration_ms,
+                "metadata": {
+                    "calculation_method": "job_based",
+                    "calculation_description": "P95 duration calculated from maximum job duration per workflow"
+                }
+            })
+    
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/workflows', methods=['GET'])
 def get_workflows():
     """
@@ -244,6 +329,10 @@ def get_trends():
 
         # Include filter metadata in response
         metadata = build_filter_metadata(conclusions, exclude_statuses)
+        
+        # Add calculation method metadata
+        metadata["calculation_method"] = "job_based"
+        metadata["calculation_description"] = "Duration metrics calculated from maximum job duration per workflow, excluding idle time between re-runs"
         
         # Handle empty result sets with informative metadata
         if not trends:
@@ -437,6 +526,8 @@ def get_trends_csv():
             "owner": owner,
             "repo": repo,
             "workflow_id": workflow_id,
+            "calculation_method": "job_based",
+            "calculation_description": "Duration metrics calculated from maximum job duration per workflow, excluding idle time between re-runs",
             "filters_applied": {
                 "conclusions": conclusions if conclusions else [],
                 "excluded_statuses": exclude_statuses if exclude_statuses else [],

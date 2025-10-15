@@ -269,7 +269,16 @@
                 <div class="value" id="summary-success-rate">-</div>
             </div>
             <div class="metric-card">
-                <h3>Overall P95 Duration</h3>
+                <h3>Overall P95 Duration
+                    <span class="tooltip">
+                        <span class="info-icon">?</span>
+                        <span class="tooltiptext">
+                            <strong>Job-Based Calculation:</strong> Duration metrics are calculated from job execution times, not workflow timestamps.<br><br>
+                            <strong>Why Job-Based?</strong> Workflow timestamps (created_at to updated_at) can span multiple days when jobs are re-run, artificially inflating duration metrics. Job-based calculation provides accurate performance insights by measuring actual CI/CD execution time.<br><br>
+                            <strong>Method:</strong> For each workflow, we use the maximum job duration (longest-running job) as the workflow duration, then calculate P95 across all workflows.
+                        </span>
+                    </span>
+                </h3>
                 <div class="value" id="summary-p95-duration">-</div>
             </div>
         </div>
@@ -283,7 +292,8 @@
                         <strong>P50 (Median):</strong> 50% of runs complete faster than this time<br>
                         <strong>P95:</strong> 95% of runs complete faster than this time - useful for identifying outliers<br>
                         <strong>P99:</strong> 99% of runs complete faster than this time - shows worst-case scenarios<br><br>
-                        <strong>Note:</strong> Percentiles (P50, P95, P99) are calculated from successful runs only. Average duration includes all runs (success, failure, cancelled).
+                        <strong>Note:</strong> Percentiles (P50, P95, P99) are calculated from successful runs only. Average duration includes all runs (success, failure, cancelled).<br><br>
+                        <strong>Job-Based Calculation:</strong> Duration metrics are based on job execution times (maximum job duration per workflow), not workflow timestamps. This provides accurate performance data by excluding idle time between re-runs.
                     </span>
                 </span>
             </h2>
@@ -472,22 +482,29 @@
                 return 'seconds';
             }
 
-            function renderSummaryMetrics(data) {
-                const totalRuns = data.reduce((sum, d) => sum + (d.total_runs || 0), 0);
-                const totalSuccessfulRuns = data.reduce((sum, d) => sum + (d.successful_runs || 0), 0);
-                
-                const successRate = totalRuns > 0 ? (totalSuccessfulRuns / totalRuns * 100).toFixed(1) : '0.0';
+            function renderSummaryMetrics(data, overallMetrics) {
+                // Use overall metrics from backend if available, otherwise fall back to aggregating trends data
+                if (overallMetrics) {
+                    document.getElementById('summary-total-runs').textContent = overallMetrics.total_runs || 0;
+                    document.getElementById('summary-success-rate').textContent = `${overallMetrics.success_rate || 0}%`;
+                    document.getElementById('summary-p95-duration').textContent = formatDuration(overallMetrics.p95_duration_ms);
+                } else {
+                    // Fallback to old calculation method
+                    const totalRuns = data.reduce((sum, d) => sum + (d.total_runs || 0), 0);
+                    const totalSuccessfulRuns = data.reduce((sum, d) => sum + (d.successful_runs || 0), 0);
+                    
+                    const successRate = totalRuns > 0 ? (totalSuccessfulRuns / totalRuns * 100).toFixed(1) : '0.0';
 
-                // NOTE: This is an average of per-period P95 values, not a true overall P95.
-                // A true overall P95 would require fetching all individual run durations from the backend.
-                const p95durations = data.map(d => d.p95_duration_ms).filter(d => d !== null);
-                const avgP95 = p95durations.length > 0 
-                    ? p95durations.reduce((sum, d) => sum + d, 0) / p95durations.length
-                    : null;
+                    // NOTE: This is an average of per-period P95 values, not a true overall P95.
+                    const p95durations = data.map(d => d.p95_duration_ms).filter(d => d !== null);
+                    const avgP95 = p95durations.length > 0 
+                        ? p95durations.reduce((sum, d) => sum + d, 0) / p95durations.length
+                        : null;
 
-                document.getElementById('summary-total-runs').textContent = totalRuns;
-                document.getElementById('summary-success-rate').textContent = `${successRate}%`;
-                document.getElementById('summary-p95-duration').textContent = formatDuration(avgP95);
+                    document.getElementById('summary-total-runs').textContent = totalRuns;
+                    document.getElementById('summary-success-rate').textContent = `${successRate}%`;
+                    document.getElementById('summary-p95-duration').textContent = formatDuration(avgP95);
+                }
             }
 
             function renderTrendsChart(data) {
@@ -1187,23 +1204,39 @@
                     params.append('conclusions', selectedConclusions.join(','));
                 }
 
-                const apiUrl = `/api/trends?${params.toString()}`;
-                console.log(`Fetching from: ${apiUrl}`);
+                const trendsUrl = `/api/trends?${params.toString()}`;
+                const overallMetricsUrl = `/api/overall-metrics?${params.toString()}`;
+                console.log(`Fetching trends from: ${trendsUrl}`);
+                console.log(`Fetching overall metrics from: ${overallMetricsUrl}`);
 
                 try {
-                    const response = await fetch(apiUrl);
-                    if (!response.ok) {
-                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
-                        throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
+                    // Fetch both trends and overall metrics in parallel
+                    const [trendsResponse, overallMetricsResponse] = await Promise.all([
+                        fetch(trendsUrl),
+                        fetch(overallMetricsUrl)
+                    ]);
+                    
+                    if (!trendsResponse.ok) {
+                        const errorData = await trendsResponse.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`Trends API Error (${trendsResponse.status}): ${errorData.error || trendsResponse.statusText}`);
                     }
-                    const responseData = await response.json();
+                    
+                    if (!overallMetricsResponse.ok) {
+                        const errorData = await overallMetricsResponse.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`Overall Metrics API Error (${overallMetricsResponse.status}): ${errorData.error || overallMetricsResponse.statusText}`);
+                    }
+                    
+                    const trendsData = await trendsResponse.json();
+                    const overallMetrics = await overallMetricsResponse.json();
 
-                    console.log("API Response Data:", responseData);
+                    console.log("Trends API Response Data:", trendsData);
+                    console.log("Overall Metrics API Response Data:", overallMetrics);
+                    
                     // Extract the data array from the response (API returns {data: [...], metadata: {...}})
-                    const data = responseData.data || responseData;
+                    const data = trendsData.data || trendsData;
                     currentTrendsData = data;
                     
-                    renderSummaryMetrics(data);
+                    renderSummaryMetrics(data, overallMetrics);
                     renderTrendsChart(data);
                     renderOutcomesChart(data);
                     renderRunsPerPeriodChart(data);

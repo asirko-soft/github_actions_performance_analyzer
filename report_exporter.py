@@ -77,6 +77,14 @@ class ReportExporter:
         file_obj.write(f"# Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
         file_obj.write("#\n")
         
+        # Write calculation method information
+        if 'calculation_method' in filter_metadata:
+            file_obj.write("# Calculation Method:\n")
+            file_obj.write(f"#   Method: {filter_metadata['calculation_method']}\n")
+            if 'calculation_description' in filter_metadata:
+                file_obj.write(f"#   Description: {filter_metadata['calculation_description']}\n")
+            file_obj.write("#\n")
+        
         # Write filter information
         if 'filters_applied' in filter_metadata:
             filters = filter_metadata['filters_applied']
