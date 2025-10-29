@@ -195,6 +195,230 @@
             color: #888;
             font-style: italic;
         }
+        
+        /* Modal Styles */
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1000;
+            display: none;
+        }
+        
+        .modal-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+        
+        .modal-content {
+            position: relative;
+            background-color: #fff;
+            margin: 50px auto;
+            padding: 30px;
+            width: 90%;
+            max-width: 600px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            z-index: 1001;
+        }
+        
+        .modal-content h2 {
+            margin-top: 0;
+            color: #24292e;
+            font-size: 1.5em;
+            border-bottom: 2px solid #e1e4e8;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .modal-content h3 {
+            color: #24292e;
+            font-size: 1.2em;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #586069;
+            font-size: 0.9em;
+        }
+        
+        .form-group input[type="text"],
+        .form-group input[type="date"] {
+            width: 100%;
+            padding: 8px 10px;
+            border: 1px solid #d1d5da;
+            border-radius: 6px;
+            font-size: 1em;
+            box-sizing: border-box;
+        }
+        
+        .form-group input[type="text"]:focus,
+        .form-group input[type="date"]:focus {
+            outline: none;
+            border-color: #0366d6;
+            box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+            justify-content: flex-end;
+        }
+        
+        .btn-primary {
+            background-color: #2ea44f;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        
+        .btn-primary:hover {
+            background-color: #2c974b;
+        }
+        
+        .btn-primary:disabled {
+            background-color: #94d3a2;
+            cursor: not-allowed;
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #5a6268;
+        }
+        
+        .preview-info {
+            background-color: #f6f8fa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e1e4e8;
+            margin-bottom: 15px;
+        }
+        
+        .preview-info p {
+            margin: 8px 0;
+            color: #24292e;
+            font-size: 1em;
+        }
+        
+        .progress-container {
+            padding: 20px 0;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background-color: #e1e4e8;
+            border-radius: 15px;
+            overflow: hidden;
+            margin-bottom: 15px;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #2ea44f 0%, #34d058 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        
+        .progress-text {
+            text-align: center;
+            color: #24292e;
+            font-size: 1em;
+            margin: 10px 0;
+        }
+        
+        .progress-count {
+            text-align: center;
+            color: #586069;
+            font-size: 0.9em;
+            margin: 5px 0;
+        }
+        
+        .results-summary {
+            background-color: #f6f8fa;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e1e4e8;
+            margin-bottom: 15px;
+        }
+        
+        .results-summary p {
+            margin: 8px 0;
+            color: #24292e;
+        }
+        
+        .results-summary strong {
+            color: #24292e;
+        }
+        
+        .error-message {
+            background-color: #ffeef0;
+            border: 1px solid #f97583;
+            color: #d73a49;
+            padding: 12px;
+            border-radius: 6px;
+            margin-top: 15px;
+            font-size: 0.9em;
+        }
+        
+        .error-message strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        /* Responsive Design */
+        @media (max-width: 768px) {
+            .modal-content {
+                width: 95%;
+                margin: 20px auto;
+                padding: 20px;
+            }
+            
+            .modal-actions {
+                flex-direction: column;
+            }
+            
+            .btn-primary,
+            .btn-secondary {
+                width: 100%;
+            }
+        }
     </style>
 </head>
 <body>
@@ -256,6 +480,81 @@
             <div class="control-group">
                 <label>&nbsp;</label> <!-- Placeholder for alignment -->
                 <button id="export-csv">Export to CSV</button>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label> <!-- Placeholder for alignment -->
+                <button id="fetch-data-btn">Fetch Workflow Data</button>
+            </div>
+        </div>
+
+        <!-- Data Fetch Modal -->
+        <div id="fetch-modal" class="modal" style="display: none;">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <h2>Fetch Workflow Data</h2>
+                
+                <!-- Configuration Section -->
+                <div id="config-section">
+                    <div class="form-group">
+                        <label for="fetch-owner">Owner:</label>
+                        <input type="text" id="fetch-owner" placeholder="e.g., project-chip">
+                    </div>
+                    <div class="form-group">
+                        <label for="fetch-repo">Repository:</label>
+                        <input type="text" id="fetch-repo" placeholder="e.g., connectedhomeip">
+                    </div>
+                    <div class="form-group">
+                        <label for="fetch-workflow">Workflow ID:</label>
+                        <input type="text" id="fetch-workflow" placeholder="e.g., tests.yaml">
+                    </div>
+                    <div class="form-group">
+                        <label for="fetch-start-date">Start Date:</label>
+                        <input type="date" id="fetch-start-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="fetch-end-date">End Date:</label>
+                        <input type="date" id="fetch-end-date">
+                    </div>
+                    <div class="modal-actions">
+                        <button id="preview-btn" class="btn-primary">Preview</button>
+                        <button id="cancel-config-btn" class="btn-secondary">Cancel</button>
+                    </div>
+                    <div id="config-error" class="error-message" style="display: none;"></div>
+                </div>
+                
+                <!-- Preview Section -->
+                <div id="preview-section" style="display: none;">
+                    <div class="preview-info">
+                        <p id="workflow-count-text"></p>
+                        <p id="date-range-text"></p>
+                    </div>
+                    <div class="modal-actions">
+                        <button id="confirm-fetch-btn" class="btn-primary">Start Fetch</button>
+                        <button id="cancel-preview-btn" class="btn-secondary">Cancel</button>
+                    </div>
+                    <div id="preview-error" class="error-message" style="display: none;"></div>
+                </div>
+                
+                <!-- Progress Section -->
+                <div id="progress-section" style="display: none;">
+                    <div class="progress-container">
+                        <div class="progress-bar">
+                            <div id="progress-fill" class="progress-fill"></div>
+                        </div>
+                        <p id="progress-text" class="progress-text">Initializing...</p>
+                        <p id="progress-count" class="progress-count"></p>
+                    </div>
+                </div>
+                
+                <!-- Results Section -->
+                <div id="results-section" style="display: none;">
+                    <h3 id="results-title">Fetch Complete</h3>
+                    <div id="results-summary" class="results-summary"></div>
+                    <div id="results-error" class="error-message" style="display: none;"></div>
+                    <div class="modal-actions">
+                        <button id="close-refresh-btn" class="btn-primary">Close & Refresh</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -393,6 +692,9 @@
                     document.getElementById('job-trend-container').style.display = 'none';
                     currentJobSelection = null;
                 });
+
+                // Initialize modal functionality
+                initializeFetchModal();
 
                 loadData(); // Initial data load
             });
@@ -1245,6 +1547,480 @@
                     await loadSlowestJobs();
                 } catch (error) {
                     console.error("Failed to load data:", error);
+                }
+            }
+
+            // Modal functionality for data fetching
+            function initializeFetchModal() {
+                const modal = document.getElementById('fetch-modal');
+                const fetchBtn = document.getElementById('fetch-data-btn');
+                const previewBtn = document.getElementById('preview-btn');
+                const confirmBtn = document.getElementById('confirm-fetch-btn');
+                const cancelConfigBtn = document.getElementById('cancel-config-btn');
+                const cancelPreviewBtn = document.getElementById('cancel-preview-btn');
+                const closeRefreshBtn = document.getElementById('close-refresh-btn');
+
+                // Open modal
+                fetchBtn.addEventListener('click', async () => {
+                    await openFetchModal();
+                });
+
+                // Preview workflow count
+                previewBtn.addEventListener('click', async () => {
+                    await previewFetch();
+                });
+
+                // Confirm and start fetch
+                confirmBtn.addEventListener('click', async () => {
+                    await startFetch();
+                });
+
+                // Cancel buttons
+                cancelConfigBtn.addEventListener('click', () => {
+                    closeFetchModal();
+                });
+
+                cancelPreviewBtn.addEventListener('click', () => {
+                    showModalSection('config');
+                });
+
+                // Close and refresh
+                closeRefreshBtn.addEventListener('click', () => {
+                    closeFetchModal();
+                    loadData(); // Refresh dashboard data
+                });
+
+                // Close modal when clicking overlay
+                modal.querySelector('.modal-overlay').addEventListener('click', () => {
+                    closeFetchModal();
+                });
+            }
+
+            async function openFetchModal() {
+                const modal = document.getElementById('fetch-modal');
+                
+                // Load default configuration
+                try {
+                    const response = await fetch('/api/config');
+                    if (response.ok) {
+                        const config = await response.json();
+                        document.getElementById('fetch-owner').value = config.owner || '';
+                        document.getElementById('fetch-repo').value = config.repo || '';
+                        document.getElementById('fetch-workflow').value = config.workflow_id || '';
+                    }
+                } catch (error) {
+                    console.error('Failed to load config:', error);
+                }
+
+                // Set default dates (last 7 days)
+                const endDate = new Date();
+                const startDate = new Date();
+                startDate.setDate(endDate.getDate() - 7);
+                
+                document.getElementById('fetch-end-date').valueAsDate = endDate;
+                document.getElementById('fetch-start-date').valueAsDate = startDate;
+
+                // Show modal and config section
+                showModalSection('config');
+                modal.style.display = 'block';
+            }
+
+            function closeFetchModal() {
+                const modal = document.getElementById('fetch-modal');
+                modal.style.display = 'none';
+                
+                // Clear any error messages
+                hideError('config-error');
+                hideError('preview-error');
+                hideError('results-error');
+            }
+
+            function showModalSection(section) {
+                const sections = ['config', 'preview', 'progress', 'results'];
+                sections.forEach(s => {
+                    const element = document.getElementById(`${s}-section`);
+                    element.style.display = s === section ? 'block' : 'none';
+                });
+            }
+
+            function showError(elementId, message, errorType) {
+                const errorElement = document.getElementById(elementId);
+                
+                // Format error message based on type
+                let formattedMessage = message;
+                
+                if (errorType === 'authentication') {
+                    formattedMessage = `<strong>Authentication Error:</strong><br>${message}`;
+                    if (message.includes('not configured') || message.includes('missing')) {
+                        formattedMessage += '<br><br><em>To fix this: Set GITHUB_TOKEN in your .env file</em>';
+                    } else if (message.includes('invalid') || message.includes('expired')) {
+                        formattedMessage += '<br><br><em>To fix this: Generate a new GitHub personal access token with repo or actions:read scope</em>';
+                    } else if (message.includes('permissions') || message.includes('Forbidden')) {
+                        formattedMessage += '<br><br><em>To fix this: Ensure your token has repo or actions:read scope</em>';
+                    }
+                } else if (errorType === 'validation') {
+                    formattedMessage = `<strong>Validation Error:</strong><br>${message}`;
+                } else if (errorType === 'api') {
+                    formattedMessage = `<strong>API Error:</strong><br>${message}`;
+                } else {
+                    formattedMessage = `<strong>Error:</strong><br>${message}`;
+                }
+                
+                errorElement.innerHTML = formattedMessage;
+                errorElement.style.display = 'block';
+            }
+
+            function hideError(elementId) {
+                const errorElement = document.getElementById(elementId);
+                errorElement.style.display = 'none';
+                errorElement.innerHTML = '';
+            }
+
+            function validateFetchInputs() {
+                const owner = document.getElementById('fetch-owner').value.trim();
+                const repo = document.getElementById('fetch-repo').value.trim();
+                const workflowId = document.getElementById('fetch-workflow').value.trim();
+                const startDate = document.getElementById('fetch-start-date').value;
+                const endDate = document.getElementById('fetch-end-date').value;
+
+                // Check for missing fields
+                const missingFields = [];
+                if (!owner) missingFields.push('Owner');
+                if (!repo) missingFields.push('Repository');
+                if (!workflowId) missingFields.push('Workflow ID');
+                
+                if (missingFields.length > 0) {
+                    return { 
+                        valid: false, 
+                        error: `Missing required field${missingFields.length > 1 ? 's' : ''}: ${missingFields.join(', ')}`,
+                        errorType: 'validation'
+                    };
+                }
+
+                if (!startDate || !endDate) {
+                    return { 
+                        valid: false, 
+                        error: 'Please select both start and end dates',
+                        errorType: 'validation'
+                    };
+                }
+
+                // Validate date format and range
+                const start = new Date(startDate);
+                const end = new Date(endDate);
+
+                if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+                    return { 
+                        valid: false, 
+                        error: 'Invalid date format. Please select valid dates.',
+                        errorType: 'validation'
+                    };
+                }
+
+                if (end <= start) {
+                    return { 
+                        valid: false, 
+                        error: 'End date must be after start date',
+                        errorType: 'validation'
+                    };
+                }
+
+                // Check if date range is reasonable (not too far in the future)
+                const now = new Date();
+                if (start > now) {
+                    return {
+                        valid: false,
+                        error: 'Start date cannot be in the future',
+                        errorType: 'validation'
+                    };
+                }
+
+                return { valid: true };
+            }
+
+            async function previewFetch() {
+                hideError('config-error');
+
+                const validation = validateFetchInputs();
+                if (!validation.valid) {
+                    showError('config-error', validation.error, validation.errorType || 'validation');
+                    return;
+                }
+
+                const owner = document.getElementById('fetch-owner').value.trim();
+                const repo = document.getElementById('fetch-repo').value.trim();
+                const workflowId = document.getElementById('fetch-workflow').value.trim();
+                const startDate = document.getElementById('fetch-start-date').value;
+                const endDate = document.getElementById('fetch-end-date').value;
+
+                // Disable preview button
+                const previewBtn = document.getElementById('preview-btn');
+                previewBtn.disabled = true;
+                previewBtn.textContent = 'Loading...';
+
+                try {
+                    const response = await fetch('/api/fetch/preview', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            owner,
+                            repo,
+                            workflow_id: workflowId,
+                            start_date: new Date(startDate + 'T00:00:00Z').toISOString(),
+                            end_date: new Date(endDate + 'T23:59:59.999Z').toISOString()
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error || `Server error: ${response.status}`);
+                    }
+
+                    // Display preview information
+                    document.getElementById('workflow-count-text').textContent = 
+                        `Found ${data.workflow_count} workflow run${data.workflow_count !== 1 ? 's' : ''} in this period`;
+                    
+                    const startFormatted = new Date(data.date_range.start).toLocaleDateString();
+                    const endFormatted = new Date(data.date_range.end).toLocaleDateString();
+                    document.getElementById('date-range-text').textContent = 
+                        `Date range: ${startFormatted} to ${endFormatted}`;
+
+                    showModalSection('preview');
+
+                } catch (error) {
+                    console.error('Preview failed:', error);
+                    
+                    // Parse error response if available
+                    let errorMessage = error.message;
+                    let errorType = 'internal';
+                    
+                    // Try to extract error details from response
+                    try {
+                        const errorData = JSON.parse(error.message);
+                        if (errorData.error) {
+                            errorMessage = errorData.error;
+                            errorType = errorData.error_type || 'internal';
+                            if (errorData.details) {
+                                errorMessage += ': ' + errorData.details;
+                            }
+                        }
+                    } catch (e) {
+                        // Not JSON, use original message
+                        // Determine error type from message content
+                        if (errorMessage.includes('401') || errorMessage.includes('authentication') || 
+                            errorMessage.includes('token not configured') || errorMessage.includes('token is missing')) {
+                            errorType = 'authentication';
+                            errorMessage = 'GitHub token not configured';
+                        } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden') || 
+                                   errorMessage.includes('permissions')) {
+                            errorType = 'authentication';
+                            errorMessage = 'Insufficient GitHub API permissions';
+                        } else if (errorMessage.includes('404')) {
+                            errorType = 'validation';
+                            errorMessage = 'Repository or workflow not found. Please check your inputs.';
+                        } else if (errorMessage.includes('Invalid date') || errorMessage.includes('date range')) {
+                            errorType = 'validation';
+                        } else if (errorMessage.includes('Missing required')) {
+                            errorType = 'validation';
+                        }
+                    }
+                    
+                    showError('config-error', errorMessage, errorType);
+                } finally {
+                    previewBtn.disabled = false;
+                    previewBtn.textContent = 'Preview';
+                }
+            }
+
+            async function startFetch() {
+                hideError('preview-error');
+
+                const owner = document.getElementById('fetch-owner').value.trim();
+                const repo = document.getElementById('fetch-repo').value.trim();
+                const workflowId = document.getElementById('fetch-workflow').value.trim();
+                const startDate = document.getElementById('fetch-start-date').value;
+                const endDate = document.getElementById('fetch-end-date').value;
+
+                // Disable confirm button
+                const confirmBtn = document.getElementById('confirm-fetch-btn');
+                confirmBtn.disabled = true;
+                confirmBtn.textContent = 'Starting...';
+
+                try {
+                    const response = await fetch('/api/fetch/start', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            owner,
+                            repo,
+                            workflow_id: workflowId,
+                            start_date: new Date(startDate + 'T00:00:00Z').toISOString(),
+                            end_date: new Date(endDate + 'T23:59:59.999Z').toISOString()
+                        })
+                    });
+
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error || `Server error: ${response.status}`);
+                    }
+
+                    // Show progress section and start polling
+                    showModalSection('progress');
+                    pollFetchStatus(data.task_id);
+
+                } catch (error) {
+                    console.error('Failed to start fetch:', error);
+                    
+                    // Parse error response
+                    let errorMessage = error.message;
+                    let errorType = 'internal';
+                    
+                    try {
+                        const errorData = JSON.parse(error.message);
+                        if (errorData.error) {
+                            errorMessage = errorData.error;
+                            errorType = errorData.error_type || 'internal';
+                            if (errorData.details) {
+                                errorMessage += ': ' + errorData.details;
+                            }
+                        }
+                    } catch (e) {
+                        // Determine error type from message
+                        if (errorMessage.includes('authentication') || errorMessage.includes('token')) {
+                            errorType = 'authentication';
+                        } else if (errorMessage.includes('validation') || errorMessage.includes('Invalid')) {
+                            errorType = 'validation';
+                        }
+                    }
+                    
+                    showError('preview-error', errorMessage, errorType);
+                    confirmBtn.disabled = false;
+                    confirmBtn.textContent = 'Start Fetch';
+                }
+            }
+
+            let pollInterval = null;
+
+            function pollFetchStatus(taskId) {
+                // Clear any existing polling
+                if (pollInterval) {
+                    clearInterval(pollInterval);
+                }
+
+                // Initial status check
+                checkFetchStatus(taskId);
+
+                // Poll every 2 seconds
+                pollInterval = setInterval(() => {
+                    checkFetchStatus(taskId);
+                }, 2000);
+            }
+
+            async function checkFetchStatus(taskId) {
+                try {
+                    const response = await fetch(`/api/fetch/status/${taskId}`);
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Failed to get task status');
+                    }
+
+                    if (data.status === 'in_progress' || data.status === 'pending') {
+                        updateProgress(data.progress);
+                    } else if (data.status === 'completed') {
+                        // Stop polling
+                        if (pollInterval) {
+                            clearInterval(pollInterval);
+                            pollInterval = null;
+                        }
+                        showResults(data.result, false);
+                    } else if (data.status === 'failed') {
+                        // Stop polling
+                        if (pollInterval) {
+                            clearInterval(pollInterval);
+                            pollInterval = null;
+                        }
+                        showResults(data.result, true, data.error);
+                    }
+
+                } catch (error) {
+                    console.error('Failed to check status:', error);
+                    // Stop polling on error
+                    if (pollInterval) {
+                        clearInterval(pollInterval);
+                        pollInterval = null;
+                    }
+                    showResults(null, true, error.message);
+                }
+            }
+
+            function updateProgress(progress) {
+                if (!progress) {
+                    document.getElementById('progress-text').textContent = 'Initializing...';
+                    document.getElementById('progress-count').textContent = '';
+                    document.getElementById('progress-fill').style.width = '0%';
+                    return;
+                }
+
+                const { current, total, message } = progress;
+                
+                // Update progress bar
+                const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
+                document.getElementById('progress-fill').style.width = `${percentage}%`;
+                
+                // Update progress text
+                document.getElementById('progress-text').textContent = message || 'Processing...';
+                
+                // Update count
+                if (current !== undefined && total !== undefined) {
+                    document.getElementById('progress-count').textContent = 
+                        `Workflow ${current} of ${total}`;
+                }
+            }
+
+            function showResults(result, isError, errorMessage) {
+                showModalSection('results');
+
+                if (isError) {
+                    // Show error state
+                    document.getElementById('results-title').textContent = 'Fetch Failed';
+                    document.getElementById('results-summary').innerHTML = '';
+                    
+                    const errorText = errorMessage || 'An unknown error occurred during the fetch operation.';
+                    showError('results-error', errorText);
+                } else {
+                    // Show success state
+                    document.getElementById('results-title').textContent = 'Fetch Complete';
+                    hideError('results-error');
+
+                    // Build results summary
+                    const summaryHtml = `
+                        <p><strong>Runs Collected:</strong> ${result.runs_collected || 0}</p>
+                        <p><strong>Runs Skipped:</strong> ${result.runs_skipped || 0} (already in database)</p>
+                        ${result.incomplete_runs_stored !== undefined ? 
+                            `<p><strong>Incomplete Runs Stored:</strong> ${result.incomplete_runs_stored}</p>` : ''}
+                        ${result.incomplete_runs_skipped !== undefined ? 
+                            `<p><strong>Incomplete Runs Skipped:</strong> ${result.incomplete_runs_skipped}</p>` : ''}
+                        ${result.errors && result.errors.length > 0 ? 
+                            `<p style="color: #d73a49;"><strong>Errors:</strong> ${result.errors.length} error(s) encountered</p>` : 
+                            '<p style="color: #2ea44f;"><strong>Status:</strong> Completed successfully</p>'}
+                    `;
+
+                    document.getElementById('results-summary').innerHTML = summaryHtml;
+
+                    // Show error details if any
+                    if (result.errors && result.errors.length > 0) {
+                        const errorDetails = result.errors.slice(0, 5).join('\n');
+                        const moreErrors = result.errors.length > 5 ? 
+                            `\n... and ${result.errors.length - 5} more error(s)` : '';
+                        showError('results-error', `Errors encountered:\n${errorDetails}${moreErrors}`);
+                    }
                 }
             }
         </script>

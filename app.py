@@ -2,10 +2,13 @@ from flask import Flask, jsonify, request, render_template, Response
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 import numpy as np
+import os
+import threading
 
 from database import GHADatabase
 from report_exporter import ReportExporter
 from utils import generate_github_job_url, analyze_repl_build_steps
+from fetch_task_manager import FetchTaskManager, execute_fetch_task
 
 app = Flask(__name__)
 
@@ -17,6 +20,9 @@ MAX_JOB_EXECUTIONS_LIMIT = 1000
 # In a real app, you might manage the DB connection differently (e.g., per-request context)
 # For simplicity, we'll create a new instance per request or use a global one.
 DB_PATH = "gha_metrics.db"
+
+# Initialize global task manager for fetch operations
+task_manager = FetchTaskManager()
 
 def get_db():
     """Opens a new database connection."""
@@ -31,6 +37,55 @@ def parse_date(date_str: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def validate_fetch_params(data: Dict[str, Any]) -> tuple[bool, Optional[str], Optional[str]]:
+    """
+    Validate parameters for fetch operations.
+    
+    Returns:
+        tuple: (is_valid, error_message, error_type)
+    """
+    # Check required parameters
+    required_fields = ['owner', 'repo', 'workflow_id', 'start_date', 'end_date']
+    missing_fields = [field for field in required_fields if not data.get(field)]
+    
+    if missing_fields:
+        return (False, 
+                f"Missing required parameters: {', '.join(missing_fields)}", 
+                "validation")
+    
+    # Validate date format
+    try:
+        start_date = datetime.fromisoformat(data['start_date'].replace('Z', '+00:00'))
+        end_date = datetime.fromisoformat(data['end_date'].replace('Z', '+00:00'))
+    except (ValueError, AttributeError) as e:
+        return (False, 
+                "Invalid date format. Dates must be in ISO 8601 format (e.g., '2024-01-01T00:00:00Z')", 
+                "validation")
+    
+    # Validate date range
+    if end_date <= start_date:
+        return (False, 
+                "Invalid date range. End date must be after start date", 
+                "validation")
+    
+    # Check if start date is not too far in the future
+    now = datetime.now(start_date.tzinfo)
+    if start_date > now:
+        return (False, 
+                "Start date cannot be in the future", 
+                "validation")
+    
+    # Validate string parameters are not empty
+    if not data['owner'].strip():
+        return (False, "Owner cannot be empty", "validation")
+    if not data['repo'].strip():
+        return (False, "Repository name cannot be empty", "validation")
+    if not data['workflow_id'].strip():
+        return (False, "Workflow ID cannot be empty", "validation")
+    
+    return (True, None, None)
 
 
 def parse_conclusions_param(conclusions_param: Optional[str]) -> Optional[List[str]]:
@@ -88,6 +143,286 @@ def build_filter_metadata(conclusions: Optional[List[str]], exclude_statuses: Li
 @app.route('/')
 def dashboard():
     return render_template('dashboard.html')
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    """
+    API endpoint to retrieve default configuration for workflow data fetching.
+    
+    Returns:
+    - JSON object with default configuration:
+      - owner: Repository owner (from GITHUB_OWNER env var or default)
+      - repo: Repository name (from GITHUB_REPO env var or default)
+      - workflow_id: Workflow file name (from GITHUB_WORKFLOW_ID env var or default)
+    """
+    config = {
+        "owner": os.getenv("GITHUB_OWNER", "project-chip"),
+        "repo": os.getenv("GITHUB_REPO", "connectedhomeip"),
+        "workflow_id": os.getenv("GITHUB_WORKFLOW_ID", "tests.yaml")
+    }
+    return jsonify(config)
+
+@app.route('/api/fetch/preview', methods=['POST'])
+def fetch_preview():
+    """
+    API endpoint to preview workflow data fetch by counting workflows in date range.
+    
+    Request Body (JSON):
+    - owner (str, required): Repository owner
+    - repo (str, required): Repository name
+    - workflow_id (str, required): Workflow file name
+    - start_date (str, required): ISO 8601 start date
+    - end_date (str, required): ISO 8601 end date
+    
+    Returns:
+    - JSON object with:
+      - workflow_count: Number of workflows in the date range
+      - date_range: Validated start and end dates
+    
+    Error Responses:
+    - 400: Missing or invalid parameters
+    - 401/403: GitHub authentication errors
+    - 500: API or internal errors
+    """
+    try:
+        # Parse request body
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "error": "Request body must be JSON",
+                "error_type": "validation",
+                "details": "Content-Type must be application/json"
+            }), 400
+        
+        # Validate parameters using helper function
+        is_valid, error_msg, error_type = validate_fetch_params(data)
+        if not is_valid:
+            return jsonify({
+                "error": error_msg,
+                "error_type": error_type,
+                "details": error_msg
+            }), 400
+        
+        # Extract validated parameters
+        owner = data['owner'].strip()
+        repo = data['repo'].strip()
+        workflow_id = data['workflow_id'].strip()
+        start_date = datetime.fromisoformat(data['start_date'].replace('Z', '+00:00'))
+        end_date = datetime.fromisoformat(data['end_date'].replace('Z', '+00:00'))
+        
+        # Check for GitHub token
+        token = os.getenv("GITHUB_TOKEN")
+        if not token:
+            return jsonify({
+                "error": "GitHub token not configured",
+                "error_type": "authentication",
+                "details": "Set GITHUB_TOKEN in .env file or environment variables"
+            }), 401
+        
+        # Query GitHub API to count workflows
+        from github_api_client import GitHubApiClient
+        
+        try:
+            client = GitHubApiClient(token)
+            
+            # Validate token before proceeding
+            is_valid, error_msg, error_type = client.validate_token()
+            if not is_valid:
+                status_code = 401 if error_type == "authentication" else 500
+                return jsonify({
+                    "error": error_msg,
+                    "error_type": error_type,
+                    "details": error_msg
+                }), status_code
+            
+            # Format dates for GitHub API
+            created_after = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+            created_before = end_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+            
+            # Fetch workflow runs in the date range
+            workflow_runs = client.get_workflow_runs(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                created_after=created_after,
+                created_before=created_before
+            )
+            
+            workflow_count = len(workflow_runs)
+            
+            return jsonify({
+                "workflow_count": workflow_count,
+                "date_range": {
+                    "start": start_date.isoformat(),
+                    "end": end_date.isoformat()
+                }
+            })
+            
+        except Exception as e:
+            error_str = str(e)
+            
+            # Check for authentication errors
+            if '401' in error_str or 'Unauthorized' in error_str:
+                return jsonify({
+                    "error": "GitHub authentication failed",
+                    "error_type": "authentication",
+                    "details": "GitHub token is invalid or expired. Please check your GITHUB_TOKEN"
+                }), 401
+            
+            if '403' in error_str or 'Forbidden' in error_str:
+                return jsonify({
+                    "error": "Insufficient permissions",
+                    "error_type": "authentication",
+                    "details": "GitHub token lacks required permissions. Ensure it has 'repo' or 'actions:read' scope"
+                }), 403
+            
+            # Generic API error
+            return jsonify({
+                "error": "GitHub API error",
+                "error_type": "api",
+                "details": error_str
+            }), 500
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Internal server error",
+            "error_type": "internal",
+            "details": str(e)
+        }), 500
+
+@app.route('/api/fetch/start', methods=['POST'])
+def fetch_start():
+    """
+    API endpoint to initiate asynchronous workflow data fetch operation.
+    
+    Request Body (JSON):
+    - owner (str, required): Repository owner
+    - repo (str, required): Repository name
+    - workflow_id (str, required): Workflow file name
+    - start_date (str, required): ISO 8601 start date
+    - end_date (str, required): ISO 8601 end date
+    - skip_incomplete (bool, optional): Whether to skip incomplete workflows (default: False)
+    
+    Returns:
+    - JSON object with:
+      - task_id: Unique identifier for the background task
+      - status: Initial task status ('pending')
+    
+    Error Responses:
+    - 400: Missing or invalid parameters
+    """
+    try:
+        # Parse request body
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "error": "Request body must be JSON",
+                "error_type": "validation",
+                "details": "Content-Type must be application/json"
+            }), 400
+        
+        # Validate parameters using helper function
+        is_valid, error_msg, error_type = validate_fetch_params(data)
+        if not is_valid:
+            return jsonify({
+                "error": error_msg,
+                "error_type": error_type,
+                "details": error_msg
+            }), 400
+        
+        # Extract validated parameters
+        owner = data['owner'].strip()
+        repo = data['repo'].strip()
+        workflow_id = data['workflow_id'].strip()
+        start_date_str = data['start_date']
+        end_date_str = data['end_date']
+        skip_incomplete = data.get('skip_incomplete', False)
+        
+        # Parse dates (already validated)
+        start_date = datetime.fromisoformat(start_date_str.replace('Z', '+00:00'))
+        end_date = datetime.fromisoformat(end_date_str.replace('Z', '+00:00'))
+        
+        # Create task configuration
+        config = {
+            'owner': owner,
+            'repo': repo,
+            'workflow_id': workflow_id,
+            'start_date': start_date_str,
+            'end_date': end_date_str,
+            'skip_incomplete': skip_incomplete
+        }
+        
+        # Create task in task manager
+        task_id = task_manager.create_task(config)
+        
+        # Start background thread to execute fetch
+        thread = threading.Thread(
+            target=execute_fetch_task,
+            args=(task_manager, task_id, owner, repo, workflow_id, start_date, end_date, DB_PATH, skip_incomplete),
+            daemon=True
+        )
+        thread.start()
+        
+        return jsonify({
+            "task_id": task_id,
+            "status": "started"
+        })
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Internal server error",
+            "error_type": "internal",
+            "details": str(e)
+        }), 500
+
+@app.route('/api/fetch/status/<task_id>', methods=['GET'])
+def fetch_status(task_id):
+    """
+    API endpoint to retrieve the status of a background fetch task.
+    
+    Path Parameters:
+    - task_id (str): Unique task identifier returned by /api/fetch/start
+    
+    Returns:
+    - JSON object with:
+      - task_id: Task identifier
+      - status: Current status ('pending', 'in_progress', 'completed', 'failed')
+      - progress: Progress information (if in_progress)
+        - current: Current workflow count
+        - total: Total workflows to process
+        - message: Descriptive progress message
+      - result: Fetch results (if completed)
+        - runs_collected: Number of workflow runs collected
+        - runs_skipped: Number of runs skipped (already in database)
+        - incomplete_runs_stored: Number of incomplete runs stored
+        - incomplete_runs_skipped: Number of incomplete runs skipped
+        - errors: List of errors encountered
+      - error: Error message (if failed)
+      - created_at: Task creation timestamp
+      - updated_at: Last update timestamp
+    
+    Error Responses:
+    - 404: Task ID not found
+    """
+    try:
+        # Retrieve task status from task manager
+        status = task_manager.get_task_status(task_id)
+        
+        if status is None:
+            return jsonify({
+                "error": "Task not found",
+                "error_type": "not_found",
+                "details": f"No task found with ID: {task_id}"
+            }), 404
+        
+        return jsonify(status)
+    
+    except Exception as e:
+        return jsonify({
+            "error": "Internal server error",
+            "error_type": "internal",
+            "details": str(e)
+        }), 500
 
 @app.route('/api/overall-metrics', methods=['GET'])
 def get_overall_metrics():

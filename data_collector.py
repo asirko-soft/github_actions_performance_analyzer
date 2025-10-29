@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict
+from typing import Optional, Dict, Callable
 import re
 
 from github_api_client import GitHubApiClient
@@ -91,7 +91,8 @@ class DataCollector:
                                   branch: Optional[str] = None, 
                                   start_date: Optional[datetime] = None, 
                                   end_date: Optional[datetime] = None,
-                                  skip_incomplete: bool = False) -> Dict:
+                                  skip_incomplete: bool = False,
+                                  progress_callback: Optional[Callable[[int, int, str], None]] = None) -> Dict:
         """
         Fetches workflow run data from GitHub API in time-based batches and stores it in the database.
         This implements a "fresh start" batch-fetching strategy.
@@ -105,6 +106,7 @@ class DataCollector:
         :param start_date: The start of the date range to fetch. Required.
         :param end_date: The end of the date range to fetch. Required.
         :param skip_incomplete: If True, skip workflows with status 'in_progress' or 'queued'.
+        :param progress_callback: Optional callback function(current, total, message) for progress updates.
         :return: Dict with keys: runs_collected, runs_skipped, incomplete_runs_stored, incomplete_runs_skipped.
         """
         if not start_date or not end_date:
@@ -132,56 +134,76 @@ class DataCollector:
             # Already normalized to UTC
             return dt.isoformat().replace("+00:00", "Z")
 
-        while current_start < final_end:
-            current_end = min(current_start + batch_delta, final_end)
+        # First pass: collect all workflow runs to determine total count
+        all_raw_runs = []
+        batch_count = 0
+        temp_start = current_start
+        
+        if progress_callback:
+            progress_callback(0, 0, "Starting data collection...")
+        
+        while temp_start < final_end:
+            temp_end = min(temp_start + batch_delta, final_end)
+            batch_count += 1
             
-            print(f"Fetching data for batch: {current_start.isoformat()} to {current_end.isoformat()}")
-
-            created_after_str = to_github_iso(current_start)
-            created_before_str = to_github_iso(current_end)
-
-            raw_workflow_runs = self.github_client.get_workflow_runs(
+            if progress_callback:
+                progress_callback(0, 0, f"Fetching batch {batch_count}: {temp_start.date()} to {temp_end.date()}")
+            
+            created_after_str = to_github_iso(temp_start)
+            created_before_str = to_github_iso(temp_end)
+            
+            batch_runs = self.github_client.get_workflow_runs(
                 owner, repo, workflow_id, branch, created_after_str, created_before_str
             )
-            print(f"  Found {len(raw_workflow_runs)} runs in this batch.")
-
-            for raw_run in raw_workflow_runs:
-                run_id = raw_run.get("id")
-                run_status = raw_run.get("status")
+            all_raw_runs.extend(batch_runs)
+            temp_start = temp_end
+        
+        total_workflows = len(all_raw_runs)
+        print(f"Found {total_workflows} total workflow runs across {batch_count} batches.")
+        
+        if progress_callback:
+            progress_callback(0, total_workflows, f"Found {total_workflows} workflows to process")
+        
+        # Process workflows with progress tracking
+        for idx, raw_run in enumerate(all_raw_runs, start=1):
+            run_id = raw_run.get("id")
+            run_status = raw_run.get("status")
+            
+            # Invoke progress callback
+            if progress_callback:
+                progress_callback(idx, total_workflows, f"Processing workflow {idx} of {total_workflows}")
+            
+            # Skip if this run already exists in the database
+            if run_id in existing_run_ids:
+                total_runs_skipped += 1
+                print(f"    Skipping workflow run ID {run_id} (already in database)")
+                continue
+            
+            # Check if workflow is incomplete
+            is_incomplete = run_status in ['in_progress', 'queued']
+            
+            # Skip incomplete workflows if requested
+            if skip_incomplete and is_incomplete:
+                incomplete_runs_skipped += 1
+                print(f"    Skipping workflow run ID {run_id} (status: {run_status})")
+                continue
+            
+            try:
+                # Parse all data for the run, including jobs and steps
+                workflow_run = self._parse_raw_run_data(raw_run, owner, repo)
                 
-                # Skip if this run already exists in the database
-                if run_id in existing_run_ids:
-                    total_runs_skipped += 1
-                    print(f"    Skipping workflow run ID {run_id} (already in database)")
-                    continue
+                # Store the complete run object in the database
+                self.db.save_workflow_run(workflow_run, owner, repo, workflow_id)
+                total_runs_collected += 1
                 
-                # Check if workflow is incomplete
-                is_incomplete = run_status in ['in_progress', 'queued']
-                
-                # Skip incomplete workflows if requested
-                if skip_incomplete and is_incomplete:
-                    incomplete_runs_skipped += 1
-                    print(f"    Skipping workflow run ID {run_id} (status: {run_status})")
-                    continue
-                
-                try:
-                    # Parse all data for the run, including jobs and steps
-                    workflow_run = self._parse_raw_run_data(raw_run, owner, repo)
-                    
-                    # Store the complete run object in the database
-                    self.db.save_workflow_run(workflow_run, owner, repo, workflow_id)
-                    total_runs_collected += 1
-                    
-                    # Track incomplete workflows that were stored
-                    if is_incomplete:
-                        incomplete_runs_stored += 1
-                        print(f"    Stored workflow run ID: {workflow_run.id} (status: {run_status})")
-                    else:
-                        print(f"    Stored workflow run ID: {workflow_run.id}")
-                except Exception as e:
-                    print(f"    Failed to process or store run ID {raw_run.get('id')}: {e}")
-
-            current_start = current_end
+                # Track incomplete workflows that were stored
+                if is_incomplete:
+                    incomplete_runs_stored += 1
+                    print(f"    Stored workflow run ID: {workflow_run.id} (status: {run_status})")
+                else:
+                    print(f"    Stored workflow run ID: {workflow_run.id}")
+            except Exception as e:
+                print(f"    Failed to process or store run ID {raw_run.get('id')}: {e}")
         
         print(f"\nTotal workflow runs collected and stored: {total_runs_collected}")
         print(f"Total workflow runs skipped (already in database): {total_runs_skipped}")
@@ -189,6 +211,9 @@ class DataCollector:
             print(f"Incomplete workflows stored (in_progress/queued): {incomplete_runs_stored}")
         if incomplete_runs_skipped > 0:
             print(f"Incomplete workflows skipped (in_progress/queued): {incomplete_runs_skipped}")
+        
+        if progress_callback:
+            progress_callback(total_workflows, total_workflows, "Data collection complete")
         
         return {
             'runs_collected': total_runs_collected,

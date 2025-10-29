@@ -106,6 +106,44 @@ class GitHubApiClient:
         response = self._make_request(url)
         return response.json()
 
+    def validate_token(self):
+        """
+        Validate the GitHub token by making a lightweight API call.
+        
+        Returns:
+            tuple: (is_valid, error_message, error_type)
+                - is_valid: True if token is valid, False otherwise
+                - error_message: Error message if invalid, None if valid
+                - error_type: 'authentication' for auth errors, None if valid
+        
+        Raises:
+            requests.exceptions.RequestException: For network errors
+        """
+        try:
+            # Use the /user endpoint as a lightweight way to validate the token
+            url = f"{self.base_url}/user"
+            response = requests.get(url, headers=self.headers, timeout=10)
+            
+            if response.status_code == 200:
+                return (True, None, None)
+            elif response.status_code == 401:
+                return (False, "GitHub token is invalid or expired", "authentication")
+            elif response.status_code == 403:
+                # Check if it's a rate limit or permission issue
+                if 'X-RateLimit-Remaining' in response.headers and int(response.headers['X-RateLimit-Remaining']) == 0:
+                    return (False, "GitHub API rate limit exceeded", "authentication")
+                else:
+                    return (False, "GitHub token lacks required permissions", "authentication")
+            else:
+                return (False, f"GitHub API returned unexpected status: {response.status_code}", "authentication")
+                
+        except requests.exceptions.Timeout:
+            return (False, "GitHub API request timed out", "api")
+        except requests.exceptions.ConnectionError:
+            return (False, "Failed to connect to GitHub API", "api")
+        except Exception as e:
+            return (False, f"Token validation failed: {str(e)}", "internal")
+
 if __name__ == '__main__':
     # Example Usage (replace with your actual token, owner, repo, workflow_id)
     # It's recommended to load the token from environment variables or a .env file
