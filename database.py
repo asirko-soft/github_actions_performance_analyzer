@@ -982,6 +982,13 @@ class GHADatabase:
         # Validate conclusions if provided
         conclusions = validate_conclusions(conclusions)
 
+        # Ensure dates are strings in the format stored in DB (YYYY-MM-DD HH:MM:SS+HH:MM)
+        # This avoids issues with varying default sqlite3 adapters across Python versions
+        if isinstance(start_date, datetime):
+            start_date = str(start_date)
+        if isinstance(end_date, datetime):
+            end_date = str(end_date)
+
         # Build the query with CTE to identify flaky occurrences
         query = """
             WITH flaky_occurrences AS (

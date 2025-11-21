@@ -32,15 +32,25 @@ config_manager = ConfigManager("/app/data/config.json")
 
 def get_db():
     """Opens a new database connection."""
-    return GHADatabase(db_path=DB_PATH)
+    if 'db' not in g:
+        db_path = os.getenv("DB_PATH", "/app/data/gha_metrics.db")
+        g.db = GHADatabase(db_path)
+        g.db.connect()
+    return g.db
+
+@app.teardown_appcontext
+def close_db(error):
+    """Closes the database connection at the end of the request."""
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 def parse_date(date_str: Optional[str]) -> Optional[datetime]:
-    """Helper to parse ISO 8601 date strings from query params."""
     if not date_str:
         return None
     try:
-        # Handles 'Z' suffix for UTC
-        return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        # Handle ISO format from JS (e.g., 2023-10-27T00:00:00.000Z)
+        return datetime.fromisoformat(date_str.replace('Z', '+00:00'))
     except ValueError:
         return None
 
