@@ -4,5 +4,7 @@ matplotlib
 numpy
 scipy
 Flask
+cryptography
+gunicorn
 
 

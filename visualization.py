@@ -14,6 +14,7 @@ from github_api_client import GitHubApiClient
 from data_collector import DataCollector
 from stats_calculator import StatsCalculator
 from utils import format_duration_hms
+from database import GHADatabase
 
 
 def parse_iso8601(dt_str: str) -> datetime:
@@ -556,7 +557,14 @@ def main():
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
 
     client = GitHubApiClient(args.token)
-    collector = DataCollector(client)
+    
+    # Initialize database
+    db_path = os.environ.get('DB_PATH', 'gha_metrics.db')
+    db = GHADatabase(db_path=db_path)
+    db.connect()
+    db.initialize_schema()
+    
+    collector = DataCollector(client, db)
 
     start_a = parse_iso8601(args.from_a)
     end_a = parse_iso8601(args.to_a)
@@ -576,8 +584,103 @@ def main():
     filter_desc = build_filter_description(conclusions, exclude_statuses)
 
     # Collect both ranges
-    runs_a = collector.collect_workflow_data(args.owner, args.repo, args.workflow_id, args.branch, start_a, end_a)
-    runs_b = collector.collect_workflow_data(args.owner, args.repo, args.workflow_id, args.branch, start_b, end_b)
+    print(f"Collecting data for range A: {start_a} to {end_a}")
+    collector.collect_workflow_data(args.owner, args.repo, args.workflow_id, args.branch, start_a, end_a)
+    
+    print(f"Collecting data for range B: {start_b} to {end_b}")
+    collector.collect_workflow_data(args.owner, args.repo, args.workflow_id, args.branch, start_b, end_b)
+    
+    # Fetch runs from database
+    runs_a = db.get_workflow_runs(args.owner, args.repo, args.workflow_id, start_a, end_a)
+    runs_b = db.get_workflow_runs(args.owner, args.repo, args.workflow_id, start_b, end_b)
+    
+    # Convert dicts back to WorkflowRun objects for compatibility with existing functions
+    # Note: This is a bit inefficient but keeps the rest of the code unchanged.
+    # Ideally, visualization functions should work with dicts or DB objects directly.
+    from data_models import WorkflowRun, Job, Step
+    
+    def dict_to_run(run_dict):
+        # We need to fetch jobs and steps for each run to fully reconstruct it
+        # This is heavy. For visualization, we might only need the top-level metrics.
+        # However, aggregate_weekly_step_metrics needs steps.
+        # Let's reconstruct what we can.
+        
+        run = WorkflowRun(
+            id=run_dict['id'],
+            name=run_dict['name'],
+            status=run_dict['status'],
+            conclusion=run_dict['conclusion'],
+            created_at=parse_iso8601(run_dict['created_at']) if isinstance(run_dict['created_at'], str) else run_dict['created_at'],
+            updated_at=parse_iso8601(run_dict['updated_at']) if isinstance(run_dict['updated_at'], str) else run_dict['updated_at'],
+            event=run_dict['event'],
+            head_branch=run_dict['head_branch'],
+            run_number=run_dict['run_number'],
+            head_sha=run_dict.get('head_sha'),
+            pull_request_number=run_dict.get('pull_request_number')
+        )
+        run.duration_ms = run_dict['duration_ms']
+        
+        # Fetch jobs for this run
+        # We need to access the internal DB connection or add a method to GHADatabase
+        # to get jobs for a run.
+        # For now, let's add a helper to fetch full run objects including jobs/steps.
+        return run
+
+    # Better approach: Add a method to GHADatabase to get full WorkflowRun objects
+    # But for now, let's modify the fetching part to use a new helper we'll add to this file
+    # or just fetch what we need.
+    
+    # Actually, let's just fetch the full objects using a helper here since we have the DB connection.
+    def get_full_runs(runs_dicts):
+        full_runs = []
+        for r_dict in runs_dicts:
+            run = dict_to_run(r_dict)
+            
+            # Fetch jobs
+            cursor = db.conn.cursor()
+            cursor.execute("SELECT * FROM jobs WHERE workflow_run_id = ?", (run.id,))
+            jobs_rows = cursor.fetchall()
+            
+            for j_row in jobs_rows:
+                j_dict = dict(j_row)
+                job = Job(
+                    id=j_dict['id'],
+                    name=j_dict['name'],
+                    status=j_dict['status'],
+                    conclusion=j_dict['conclusion'],
+                    started_at=parse_iso8601(j_dict['started_at']) if j_dict['started_at'] else None,
+                    completed_at=parse_iso8601(j_dict['completed_at']) if j_dict['completed_at'] else None,
+                    workflow_run_id=run.id,
+                    matrix_config=json.loads(j_dict['matrix_config']) if j_dict['matrix_config'] else None,
+                    run_attempt=j_dict.get('run_attempt')
+                )
+                job.duration_ms = j_dict['duration_ms']
+                
+                # Fetch steps
+                cursor.execute("SELECT * FROM steps WHERE job_id = ?", (job.id,))
+                steps_rows = cursor.fetchall()
+                for s_row in steps_rows:
+                    s_dict = dict(s_row)
+                    step = Step(
+                        name=s_dict['name'],
+                        status=s_dict['status'],
+                        conclusion=s_dict['conclusion'],
+                        number=s_dict['number'],
+                        started_at=parse_iso8601(s_dict['started_at']) if s_dict['started_at'] else None,
+                        completed_at=parse_iso8601(s_dict['completed_at']) if s_dict['completed_at'] else None
+                    )
+                    step.duration_ms = s_dict['duration_ms']
+                    job.steps.append(step)
+                
+                run.jobs.append(job)
+            full_runs.append(run)
+        return full_runs
+
+    import json # Ensure json is imported
+    
+    print("Fetching full run details from database...")
+    runs_a = get_full_runs(runs_a)
+    runs_b = get_full_runs(runs_b)
 
     # Combine all runs for analysis
     runs_by_id = {}

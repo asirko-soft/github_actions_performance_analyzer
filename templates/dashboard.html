@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,6 +14,7 @@
             background-color: #f4f7f6;
             color: #333;
         }
+
         .container {
             max-width: 1200px;
             margin: 20px auto;
@@ -21,18 +23,22 @@
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         }
+
         header {
-            background-color: #24292e; /* GitHub dark header color */
+            background-color: #24292e;
+            /* GitHub dark header color */
             color: #fff;
             padding: 15px 20px;
             text-align: center;
             border-radius: 8px 8px 0 0;
             margin-bottom: 20px;
         }
+
         header h1 {
             margin: 0;
             font-size: 1.8em;
         }
+
         .control-panel {
             display: flex;
             flex-wrap: wrap;
@@ -43,17 +49,20 @@
             background-color: #f6f8fa;
             margin-bottom: 20px;
         }
+
         .control-group {
             display: flex;
             flex-direction: column;
             min-width: 180px;
         }
+
         .control-group label {
             font-weight: bold;
             margin-bottom: 5px;
             color: #586069;
             font-size: 0.9em;
         }
+
         .control-group select,
         .control-group input[type="date"],
         .control-group button {
@@ -63,11 +72,13 @@
             font-size: 1em;
             background-color: #fff;
         }
+
         .status-filter {
             display: flex;
             flex-direction: column;
             gap: 5px;
         }
+
         .status-filter label {
             display: flex;
             align-items: center;
@@ -76,24 +87,30 @@
             color: #24292e;
             cursor: pointer;
         }
+
         .status-filter input[type="checkbox"] {
             cursor: pointer;
         }
+
         .control-group button {
-            background-color: #2ea44f; /* GitHub green button */
+            background-color: #2ea44f;
+            /* GitHub green button */
             color: #fff;
             cursor: pointer;
             border: none;
             font-weight: bold;
             transition: background-color 0.2s ease;
         }
+
         .control-group button:hover {
             background-color: #2c974b;
         }
+
         .preset-buttons {
             display: flex;
             gap: 5px;
         }
+
         .summary-panel {
             display: flex;
             justify-content: space-around;
@@ -101,6 +118,7 @@
             margin-bottom: 20px;
             text-align: center;
         }
+
         .metric-card {
             background-color: #f6f8fa;
             padding: 20px;
@@ -108,17 +126,20 @@
             border: 1px solid #e1e4e8;
             flex-grow: 1;
         }
+
         .metric-card h3 {
             margin: 0 0 10px 0;
             color: #586069;
             font-size: 1em;
             text-transform: uppercase;
         }
+
         .metric-card .value {
             font-size: 2em;
             font-weight: bold;
             color: #24292e;
         }
+
         .chart-container {
             margin-bottom: 20px;
             padding: 15px;
@@ -126,6 +147,7 @@
             border-radius: 6px;
             background-color: #fff;
         }
+
         .chart-container h2 {
             margin-top: 0;
             color: #24292e;
@@ -134,6 +156,7 @@
             padding-bottom: 10px;
             margin-bottom: 15px;
         }
+
         .chart-container .help-text {
             color: #586069;
             font-size: 0.9em;
@@ -141,10 +164,12 @@
             margin-bottom: 15px;
             font-style: italic;
         }
+
         .outcomes-widget {
             max-width: 400px;
             margin: 0 auto;
         }
+
         .info-icon {
             display: inline-block;
             width: 16px;
@@ -158,10 +183,12 @@
             cursor: help;
             margin-left: 5px;
         }
+
         .tooltip {
             position: relative;
             display: inline-block;
         }
+
         .tooltip .tooltiptext {
             visibility: hidden;
             width: 300px;
@@ -180,13 +207,16 @@
             font-size: 0.85em;
             line-height: 1.4;
         }
+
         .tooltip:hover .tooltiptext {
             visibility: visible;
             opacity: 1;
         }
+
         .chart-placeholder {
             width: 100%;
-            height: 300px; /* Placeholder height for charts */
+            height: 300px;
+            /* Placeholder height for charts */
             background-color: #f0f0f0;
             border: 1px dashed #ccc;
             display: flex;
@@ -195,7 +225,16 @@
             color: #888;
             font-style: italic;
         }
-        
+
+        /* Flakiness table styles */
+        .metrics-table tbody tr:hover {
+            background-color: #f6f8fa;
+        }
+
+        .metrics-table a:hover {
+            text-decoration: underline;
+        }
+
         /* Modal Styles */
         .modal {
             position: fixed;
@@ -206,7 +245,7 @@
             z-index: 1000;
             display: none;
         }
-        
+
         .modal-overlay {
             position: absolute;
             top: 0;
@@ -215,7 +254,7 @@
             height: 100%;
             background-color: rgba(0, 0, 0, 0.5);
         }
-        
+
         .modal-content {
             position: relative;
             background-color: #fff;
@@ -227,7 +266,7 @@
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             z-index: 1001;
         }
-        
+
         .modal-content h2 {
             margin-top: 0;
             color: #24292e;
@@ -236,18 +275,18 @@
             padding-bottom: 10px;
             margin-bottom: 20px;
         }
-        
+
         .modal-content h3 {
             color: #24292e;
             font-size: 1.2em;
             margin-top: 0;
             margin-bottom: 15px;
         }
-        
+
         .form-group {
             margin-bottom: 15px;
         }
-        
+
         .form-group label {
             display: block;
             font-weight: bold;
@@ -255,7 +294,7 @@
             color: #586069;
             font-size: 0.9em;
         }
-        
+
         .form-group input[type="text"],
         .form-group input[type="date"] {
             width: 100%;
@@ -265,21 +304,21 @@
             font-size: 1em;
             box-sizing: border-box;
         }
-        
+
         .form-group input[type="text"]:focus,
         .form-group input[type="date"]:focus {
             outline: none;
             border-color: #0366d6;
             box-shadow: 0 0 0 3px rgba(3, 102, 214, 0.1);
         }
-        
+
         .modal-actions {
             display: flex;
             gap: 10px;
             margin-top: 20px;
             justify-content: flex-end;
         }
-        
+
         .btn-primary {
             background-color: #2ea44f;
             color: #fff;
@@ -291,16 +330,16 @@
             cursor: pointer;
             transition: background-color 0.2s ease;
         }
-        
+
         .btn-primary:hover {
             background-color: #2c974b;
         }
-        
+
         .btn-primary:disabled {
             background-color: #94d3a2;
             cursor: not-allowed;
         }
-        
+
         .btn-secondary {
             background-color: #6c757d;
             color: #fff;
@@ -311,11 +350,11 @@
             cursor: pointer;
             transition: background-color 0.2s ease;
         }
-        
+
         .btn-secondary:hover {
             background-color: #5a6268;
         }
-        
+
         .preview-info {
             background-color: #f6f8fa;
             padding: 15px;
@@ -323,17 +362,17 @@
             border: 1px solid #e1e4e8;
             margin-bottom: 15px;
         }
-        
+
         .preview-info p {
             margin: 8px 0;
             color: #24292e;
             font-size: 1em;
         }
-        
+
         .progress-container {
             padding: 20px 0;
         }
-        
+
         .progress-bar {
             width: 100%;
             height: 30px;
@@ -342,7 +381,7 @@
             overflow: hidden;
             margin-bottom: 15px;
         }
-        
+
         .progress-fill {
             height: 100%;
             background: linear-gradient(90deg, #2ea44f 0%, #34d058 100%);
@@ -355,21 +394,21 @@
             font-weight: bold;
             font-size: 0.9em;
         }
-        
+
         .progress-text {
             text-align: center;
             color: #24292e;
             font-size: 1em;
             margin: 10px 0;
         }
-        
+
         .progress-count {
             text-align: center;
             color: #586069;
             font-size: 0.9em;
             margin: 5px 0;
         }
-        
+
         .results-summary {
             background-color: #f6f8fa;
             padding: 15px;
@@ -377,16 +416,16 @@
             border: 1px solid #e1e4e8;
             margin-bottom: 15px;
         }
-        
+
         .results-summary p {
             margin: 8px 0;
             color: #24292e;
         }
-        
+
         .results-summary strong {
             color: #24292e;
         }
-        
+
         .error-message {
             background-color: #ffeef0;
             border: 1px solid #f97583;
@@ -396,12 +435,12 @@
             margin-top: 15px;
             font-size: 0.9em;
         }
-        
+
         .error-message strong {
             display: block;
             margin-bottom: 5px;
         }
-        
+
         /* Responsive Design */
         @media (max-width: 768px) {
             .modal-content {
@@ -409,11 +448,11 @@
                 margin: 20px auto;
                 padding: 20px;
             }
-            
+
             .modal-actions {
                 flex-direction: column;
             }
-            
+
             .btn-primary,
             .btn-secondary {
                 width: 100%;
@@ -421,10 +460,19 @@
         }
     </style>
 </head>
+
 <body>
     <div class="container">
         <header>
             <h1>GitHub Actions Performance Dashboard</h1>
+            <div id="token-status" style="margin-top: 10px; font-size: 0.9em;">
+                <span id="token-indicator"
+                    style="display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px;"></span>
+                <span id="token-text">Checking token status...</span>
+                <button id="settings-btn"
+                    style="margin-left: 15px; padding: 5px 12px; background-color: #586069; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9em;">⚙️
+                    Settings</button>
+            </div>
         </header>
 
         <div class="control-panel">
@@ -470,7 +518,8 @@
                     <label><input type="checkbox" class="status-checkbox" value="failure" checked> Failure</label>
                     <label><input type="checkbox" class="status-checkbox" value="cancelled" checked> Cancelled</label>
                     <label><input type="checkbox" class="status-checkbox" value="skipped" checked> Skipped</label>
-                    <label><input type="checkbox" class="status-checkbox" value="action_required" checked> Action Required</label>
+                    <label><input type="checkbox" class="status-checkbox" value="action_required" checked> Action
+                        Required</label>
                 </div>
             </div>
             <div class="control-group">
@@ -487,12 +536,55 @@
             </div>
         </div>
 
+        <!-- Settings Modal -->
+        <div id="settings-modal" class="modal" style="display: none;">
+            <div class="modal-overlay"></div>
+            <div class="modal-content">
+                <h2>Settings</h2>
+
+                <h3>GitHub Token Configuration</h3>
+                <p style="color: #586069; font-size: 0.9em; margin-bottom: 15px;">
+                    Configure your GitHub personal access token to fetch workflow data. The token will be encrypted and
+                    stored securely.
+                </p>
+
+                <div id="token-config-section">
+                    <div class="form-group">
+                        <label for="github-token-input">GitHub Token:</label>
+                        <input type="password" id="github-token-input"
+                            placeholder="ghp_xxxxxxxxxxxx or github_pat_xxxxxxxxxxxx"
+                            style="width: 100%; padding: 8px 10px; border: 1px solid #d1d5da; border-radius: 6px; font-size: 1em; box-sizing: border-box;">
+                        <small style="color: #586069; font-size: 0.85em; display: block; margin-top: 5px;">
+                            Token should start with 'ghp_', 'github_pat_', or 'gho_'
+                        </small>
+                    </div>
+
+                    <div id="token-status-info"
+                        style="background-color: #f6f8fa; padding: 12px; border-radius: 6px; border: 1px solid #e1e4e8; margin-bottom: 15px;">
+                        <p style="margin: 5px 0;"><strong>Current Status:</strong> <span
+                                id="current-token-status">Loading...</span></p>
+                        <p style="margin: 5px 0;"><strong>Source:</strong> <span id="current-token-source">-</span></p>
+                    </div>
+
+                    <div class="modal-actions">
+                        <button id="save-token-btn" class="btn-primary">Save Token</button>
+                        <button id="remove-token-btn" class="btn-secondary" style="background-color: #d73a49;">Remove
+                            Token</button>
+                        <button id="close-settings-btn" class="btn-secondary">Close</button>
+                    </div>
+
+                    <div id="token-config-message"
+                        style="margin-top: 15px; padding: 12px; border-radius: 6px; display: none;"></div>
+                </div>
+            </div>
+        </div>
+
         <!-- Data Fetch Modal -->
         <div id="fetch-modal" class="modal" style="display: none;">
             <div class="modal-overlay"></div>
             <div class="modal-content">
                 <h2>Fetch Workflow Data</h2>
-                
+
                 <!-- Configuration Section -->
                 <div id="config-section">
                     <div class="form-group">
@@ -521,7 +613,7 @@
                     </div>
                     <div id="config-error" class="error-message" style="display: none;"></div>
                 </div>
-                
+
                 <!-- Preview Section -->
                 <div id="preview-section" style="display: none;">
                     <div class="preview-info">
@@ -534,7 +626,7 @@
                     </div>
                     <div id="preview-error" class="error-message" style="display: none;"></div>
                 </div>
-                
+
                 <!-- Progress Section -->
                 <div id="progress-section" style="display: none;">
                     <div class="progress-container">
@@ -545,7 +637,7 @@
                         <p id="progress-count" class="progress-count"></p>
                     </div>
                 </div>
-                
+
                 <!-- Results Section -->
                 <div id="results-section" style="display: none;">
                     <h3 id="results-title">Fetch Complete</h3>
@@ -572,9 +664,14 @@
                     <span class="tooltip">
                         <span class="info-icon">?</span>
                         <span class="tooltiptext">
-                            <strong>Job-Based Calculation:</strong> Duration metrics are calculated from job execution times, not workflow timestamps.<br><br>
-                            <strong>Why Job-Based?</strong> Workflow timestamps (created_at to updated_at) can span multiple days when jobs are re-run, artificially inflating duration metrics. Job-based calculation provides accurate performance insights by measuring actual CI/CD execution time.<br><br>
-                            <strong>Method:</strong> For each workflow, we use the maximum job duration (longest-running job) as the workflow duration, then calculate P95 across all workflows.
+                            <strong>Job-Based Calculation:</strong> Duration metrics are calculated from job execution
+                            times, not workflow timestamps.<br><br>
+                            <strong>Why Job-Based?</strong> Workflow timestamps (created_at to updated_at) can span
+                            multiple days when jobs are re-run, artificially inflating duration metrics. Job-based
+                            calculation provides accurate performance insights by measuring actual CI/CD execution
+                            time.<br><br>
+                            <strong>Method:</strong> For each workflow, we use the maximum job duration (longest-running
+                            job) as the workflow duration, then calculate P95 across all workflows.
                         </span>
                     </span>
                 </h3>
@@ -589,14 +686,20 @@
                     <span class="info-icon">?</span>
                     <span class="tooltiptext">
                         <strong>P50 (Median):</strong> 50% of runs complete faster than this time<br>
-                        <strong>P95:</strong> 95% of runs complete faster than this time - useful for identifying outliers<br>
-                        <strong>P99:</strong> 99% of runs complete faster than this time - shows worst-case scenarios<br><br>
-                        <strong>Note:</strong> Percentiles (P50, P95, P99) are calculated from successful runs only. Average duration includes all runs (success, failure, cancelled).<br><br>
-                        <strong>Job-Based Calculation:</strong> Duration metrics are based on job execution times (maximum job duration per workflow), not workflow timestamps. This provides accurate performance data by excluding idle time between re-runs.
+                        <strong>P95:</strong> 95% of runs complete faster than this time - useful for identifying
+                        outliers<br>
+                        <strong>P99:</strong> 99% of runs complete faster than this time - shows worst-case
+                        scenarios<br><br>
+                        <strong>Note:</strong> Percentiles (P50, P95, P99) are calculated from successful runs only.
+                        Average duration includes all runs (success, failure, cancelled).<br><br>
+                        <strong>Job-Based Calculation:</strong> Duration metrics are based on job execution times
+                        (maximum job duration per workflow), not workflow timestamps. This provides accurate performance
+                        data by excluding idle time between re-runs.
                     </span>
                 </span>
             </h2>
-            <p class="help-text">Shows performance trends over time. Percentiles help you understand typical vs. worst-case performance.</p>
+            <p class="help-text">Shows performance trends over time. Percentiles help you understand typical vs.
+                worst-case performance.</p>
             <canvas id="workflow-trends-chart"></canvas>
         </div>
 
@@ -624,7 +727,8 @@
                 <span class="tooltip">
                     <span class="info-icon">?</span>
                     <span class="tooltiptext">
-                        Shows the top 10 jobs with the highest P95 duration for successful runs. Click on a job bar to see step-level breakdown.
+                        Shows the top 10 jobs with the highest P95 duration for successful runs. Click on a job bar to
+                        see step-level breakdown.
                     </span>
                 </span>
             </h2>
@@ -633,9 +737,54 @@
             <canvas id="slowest-jobs-chart"></canvas>
         </div>
 
+        <div class="chart-container">
+            <h2>Flakiness Report
+                <span class="tooltip">
+                    <span class="info-icon">?</span>
+                    <span class="tooltiptext">
+                        <strong>Flaky Jobs:</strong> Jobs that failed on first attempt but succeeded on re-run.<br><br>
+                        <strong>Flakiness Score:</strong> Time-weighted metric prioritizing recent flakes (higher = more
+                        problematic).<br><br>
+                        <strong>Flake Rate:</strong> Percentage of runs that exhibited flaky behavior.<br><br>
+                        <strong>Wasted CI Time:</strong> Total duration of failed attempts that were later re-run
+                        successfully.
+                    </span>
+                </span>
+            </h2>
+            <p class="help-text">Jobs that failed on first attempt but succeeded on re-run, ranked by recency-weighted
+                flakiness score.</p>
+            <div id="flakiness-loading" style="text-align: center; font-style: italic; color: #586069; padding: 20px;">
+                Loading flakiness data...</div>
+            <div id="flakiness-error"
+                style="display: none; background-color: #ffeef0; border: 1px solid #f97583; color: #d73a49; padding: 12px; border-radius: 6px; margin: 10px 0;">
+            </div>
+            <table id="flakiness-table" class="metrics-table"
+                style="display: none; width: 100%; border-collapse: collapse; margin-top: 15px;">
+                <thead>
+                    <tr style="background-color: #f6f8fa; border-bottom: 2px solid #e1e4e8;">
+                        <th style="padding: 12px; text-align: left; font-weight: bold; color: #24292e;">Job Name</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; color: #24292e;">Flakiness
+                            Score</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; color: #24292e;">Flake Rate (%)
+                        </th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; color: #24292e;">Flake Count
+                        </th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; color: #24292e;">Total Runs
+                        </th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; color: #24292e;">Wasted CI Time
+                        </th>
+                        <th style="padding: 12px; text-align: left; font-weight: bold; color: #24292e;">Last Flaked</th>
+                    </tr>
+                </thead>
+                <tbody id="flakiness-table-body"></tbody>
+            </table>
+        </div>
+
         <div class="chart-container" id="step-drilldown-container" style="display: none;">
             <h2 id="step-drilldown-title">Step Performance for Job</h2>
-            <button id="back-to-jobs" style="margin-bottom: 15px; padding: 8px 16px; background-color: #586069; color: white; border: none; border-radius: 6px; cursor: pointer;">← Back to Jobs</button>
+            <button id="back-to-jobs"
+                style="margin-bottom: 15px; padding: 8px 16px; background-color: #586069; color: white; border: none; border-radius: 6px; cursor: pointer;">←
+                Back to Jobs</button>
             <p id="step-drilldown-message" style="text-align: center; font-style: italic; color: #586069;"></p>
             <canvas id="step-drilldown-chart"></canvas>
         </div>
@@ -695,6 +844,10 @@
 
                 // Initialize modal functionality
                 initializeFetchModal();
+                initializeSettingsModal();
+
+                // Check token status on load
+                checkTokenStatus();
 
                 loadData(); // Initial data load
             });
@@ -733,7 +886,7 @@
 
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
-                
+
                 const selectedConclusions = getSelectedConclusions();
                 if (selectedConclusions.length > 0) {
                     params.append('conclusions', selectedConclusions.join(','));
@@ -749,24 +902,24 @@
             function formatDuration(ms) {
                 if (ms === null || isNaN(ms) || ms === 0) return '-';
                 if (ms < 1000) return `${Math.round(ms)}ms`;
-                
+
                 const seconds = ms / 1000;
                 if (seconds < 60) return `${seconds.toFixed(1)}s`;
-                
+
                 const minutes = seconds / 60;
                 if (minutes < 60) return `${minutes.toFixed(1)}m`;
-                
+
                 const hours = minutes / 60;
                 return `${hours.toFixed(1)}h`;
             }
 
             function formatDurationForChart(ms) {
                 if (ms === null || isNaN(ms) || ms === 0) return null;
-                
+
                 const seconds = ms / 1000;
                 const minutes = seconds / 60;
                 const hours = minutes / 60;
-                
+
                 // Return in the most appropriate unit
                 if (hours >= 1) return hours;
                 if (minutes >= 1) return minutes;
@@ -775,10 +928,10 @@
 
             function getDurationUnit(maxMs) {
                 if (maxMs === null || isNaN(maxMs) || maxMs === 0) return 'seconds';
-                
+
                 const maxHours = maxMs / 1000 / 60 / 60;
                 const maxMinutes = maxMs / 1000 / 60;
-                
+
                 if (maxHours >= 1) return 'hours';
                 if (maxMinutes >= 1) return 'minutes';
                 return 'seconds';
@@ -794,12 +947,12 @@
                     // Fallback to old calculation method
                     const totalRuns = data.reduce((sum, d) => sum + (d.total_runs || 0), 0);
                     const totalSuccessfulRuns = data.reduce((sum, d) => sum + (d.successful_runs || 0), 0);
-                    
+
                     const successRate = totalRuns > 0 ? (totalSuccessfulRuns / totalRuns * 100).toFixed(1) : '0.0';
 
                     // NOTE: This is an average of per-period P95 values, not a true overall P95.
                     const p95durations = data.map(d => d.p95_duration_ms).filter(d => d !== null);
-                    const avgP95 = p95durations.length > 0 
+                    const avgP95 = p95durations.length > 0
                         ? p95durations.reduce((sum, d) => sum + d, 0) / p95durations.length
                         : null;
 
@@ -815,13 +968,13 @@
                 }
                 const ctx = document.getElementById('workflow-trends-chart').getContext('2d');
                 const labels = data.map(d => d.period_start);
-                
+
                 // Determine the best unit based on max values
                 const allDurations = data.flatMap(d => [d.avg_duration_ms, d.p50_duration_ms, d.p95_duration_ms, d.p99_duration_ms].filter(v => v !== null));
                 const maxDuration = allDurations.length > 0 ? Math.max(...allDurations) : 0;
                 const unit = getDurationUnit(maxDuration);
                 const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
-                
+
                 const avgDurationData = data.map(d => d.avg_duration_ms ? (d.avg_duration_ms / divisor) : null);
                 const p50DurationData = data.map(d => d.p50_duration_ms ? (d.p50_duration_ms / divisor) : null);
                 const p95DurationData = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / divisor) : null);
@@ -871,7 +1024,7 @@
                                 mode: 'index',
                                 intersect: false,
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         let label = context.dataset.label || '';
                                         if (context.parsed.y !== null) {
                                             const ms = context.parsed.y * divisor;
@@ -900,7 +1053,7 @@
                     outcomesChart.destroy();
                 }
                 const ctx = document.getElementById('workflow-outcomes-chart').getContext('2d');
-                
+
                 const totalSuccess = data.reduce((sum, d) => sum + (d.successful_runs || 0), 0);
                 const totalFailure = data.reduce((sum, d) => sum + (d.failed_runs || 0), 0);
                 const totalCancelled = data.reduce((sum, d) => sum + (d.cancelled_runs || 0), 0);
@@ -989,7 +1142,7 @@
                 const drilldownTitle = document.getElementById('job-drilldown-title');
                 drilldownTitle.textContent = `Job Performance for period starting ${periodData.period_start}`;
                 drilldownContainer.style.display = 'block';
-                
+
                 // Clear previous chart/message and show loading state
                 document.getElementById('job-drilldown-message').textContent = 'Loading...';
                 if (jobDrilldownChart) {
@@ -1008,12 +1161,12 @@
                     start_date: startDate,
                     end_date: endDate
                 });
-                
+
                 const selectedConclusions = getSelectedConclusions();
                 if (selectedConclusions.length > 0) {
                     params.append('conclusions', selectedConclusions.join(','));
                 }
-                
+
                 const apiUrl = `/api/jobs?${params.toString()}`;
                 console.log(`Fetching job drilldown from: ${apiUrl}`);
 
@@ -1052,7 +1205,7 @@
 
                 const labels = data.map(d => d.job_name);
                 const p95durationsMs = data.map(d => d.p95_duration_ms || null);
-                
+
                 // Determine the best unit
                 const maxDuration = p95durationsMs.filter(d => d !== null).reduce((max, d) => Math.max(max, d), 0);
                 const unit = getDurationUnit(maxDuration);
@@ -1075,16 +1228,16 @@
                         plugins: {
                             tooltip: {
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         let label = context.dataset.label || '';
                                         if (label) { label += ': '; }
-                                        if (context.parsed.x !== null) { 
+                                        if (context.parsed.x !== null) {
                                             const ms = context.parsed.x * divisor;
                                             label += formatDuration(ms);
                                         }
                                         return label;
                                     },
-                                    afterLabel: function(context) {
+                                    afterLabel: function (context) {
                                         const jobData = data[context.dataIndex];
                                         return [`Total Runs: ${jobData.total_runs}`, `Success Rate: ${jobData.success_rate}%`];
                                     }
@@ -1162,7 +1315,7 @@
 
                 const labels = data.map(d => d.job_name.length > 40 ? d.job_name.substring(0, 37) + '...' : d.job_name);
                 const p95durationsMs = data.map(d => d.p95_duration_ms || null);
-                
+
                 const maxDuration = p95durationsMs.filter(d => d !== null).reduce((max, d) => Math.max(max, d), 0);
                 const unit = getDurationUnit(maxDuration);
                 const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
@@ -1195,30 +1348,139 @@
                         plugins: {
                             tooltip: {
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         let label = context.dataset.label || '';
                                         if (label) { label += ': '; }
-                                        if (context.parsed.x !== null) { 
+                                        if (context.parsed.x !== null) {
                                             const ms = context.parsed.x * divisor;
                                             label += formatDuration(ms);
                                         }
                                         return label;
                                     },
-                                    afterLabel: function(context) {
+                                    afterLabel: function (context) {
                                         const jobData = data[context.dataIndex];
                                         return [`Total Runs: ${jobData.total_runs}`, `Success Rate: ${jobData.success_rate}%`];
                                     }
                                 }
                             }
                         },
-                        scales: { 
-                            x: { 
-                                beginAtZero: true, 
-                                title: { display: true, text: `P95 Duration (${unit})` } 
-                            } 
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                title: { display: true, text: `P95 Duration (${unit})` }
+                            }
                         }
                     }
                 });
+            }
+
+            async function loadFlakinessReport() {
+                const owner = document.getElementById('repo-owner').value;
+                const repo = document.getElementById('repo-name').value;
+                const workflowId = document.getElementById('workflow-id').value;
+                const startDateValue = document.getElementById('start-date').value;
+                const endDateValue = document.getElementById('end-date').value;
+
+                const startDate = startDateValue ? new Date(startDateValue + 'T00:00:00Z').toISOString() : '';
+                const endDate = endDateValue ? new Date(endDateValue + 'T23:59:59.999Z').toISOString() : '';
+
+                if (!owner || !repo || !workflowId || !startDate || !endDate) {
+                    return;
+                }
+
+                const loadingEl = document.getElementById('flakiness-loading');
+                const errorEl = document.getElementById('flakiness-error');
+                const tableEl = document.getElementById('flakiness-table');
+
+                // Show loading state
+                loadingEl.style.display = 'block';
+                errorEl.style.display = 'none';
+                tableEl.style.display = 'none';
+
+                const params = new URLSearchParams({
+                    owner,
+                    repo,
+                    workflow_id: workflowId,
+                    start_date: startDate,
+                    end_date: endDate,
+                    limit: 10
+                });
+
+                const selectedConclusions = getSelectedConclusions();
+                if (selectedConclusions.length > 0) {
+                    params.append('conclusions', selectedConclusions.join(','));
+                }
+
+                const apiUrl = `/api/jobs/flakiest?${params.toString()}`;
+                console.log(`Fetching flakiness report from: ${apiUrl}`);
+
+                try {
+                    const response = await fetch(apiUrl);
+                    if (!response.ok) {
+                        const errorData = await response.json().catch(() => ({ error: 'Failed to parse error JSON' }));
+                        throw new Error(`API Error (${response.status}): ${errorData.error || response.statusText}`);
+                    }
+                    const data = await response.json();
+                    console.log("Flakiness report data:", data);
+                    // Normalize response shape: backend may return either an array of jobs
+                    // or an object with a `data` array and `metadata` field when empty.
+                    const flakyJobs = Array.isArray(data) ? data : (data.data || []);
+                    renderFlakinessTable(flakyJobs);
+                } catch (error) {
+                    console.error("Failed to load flakiness report:", error);
+                    loadingEl.style.display = 'none';
+                    errorEl.textContent = `Error: ${error.message}`;
+                    errorEl.style.display = 'block';
+                }
+            }
+
+            function renderFlakinessTable(flakyJobs) {
+                const loadingEl = document.getElementById('flakiness-loading');
+                const tableEl = document.getElementById('flakiness-table');
+                const tbody = document.getElementById('flakiness-table-body');
+
+                loadingEl.style.display = 'none';
+
+                if (!flakyJobs || flakyJobs.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 20px; font-style: italic; color: #586069;">No flaky jobs detected in the selected time period.</td></tr>';
+                    tableEl.style.display = 'table';
+                    return;
+                }
+
+                tbody.innerHTML = '';
+
+                flakyJobs.forEach(job => {
+                    const row = document.createElement('tr');
+                    row.style.borderBottom = '1px solid #e1e4e8';
+
+                    // Helper function to escape HTML
+                    const escapeHtml = (text) => {
+                        const div = document.createElement('div');
+                        div.textContent = text;
+                        return div.innerHTML;
+                    };
+
+                    row.innerHTML = `
+                        <td style="padding: 12px; color: #24292e;">${escapeHtml(job.job_name)}</td>
+                        <td style="padding: 12px; text-align: center; color: #24292e; font-weight: bold;">${job.flakiness_score.toFixed(1)}</td>
+                        <td style="padding: 12px; text-align: center; color: #24292e;">${job.flake_rate.toFixed(1)}%</td>
+                        <td style="padding: 12px; text-align: center; color: #24292e;">${job.flake_count}</td>
+                        <td style="padding: 12px; text-align: center; color: #24292e;">${job.total_runs}</td>
+                        <td style="padding: 12px; text-align: center; color: #24292e;">${formatDuration(job.wasted_ci_time_ms)}</td>
+                        <td style="padding: 12px;">
+                            <a href="${job.last_flaked_context.url}" target="_blank" style="color: #0366d6; text-decoration: none;">
+                                ${escapeHtml(job.last_flaked_context.display_text)}
+                            </a>
+                            <br>
+                            <a href="${job.last_flaked_context.job_url}" target="_blank" style="color: #586069; text-decoration: none; font-size: 0.9em;">
+                                View Job →
+                            </a>
+                        </td>
+                    `;
+                    tbody.appendChild(row);
+                });
+
+                tableEl.style.display = 'table';
             }
 
             async function loadStepsForJob(jobName) {
@@ -1234,7 +1496,7 @@
                 const stepContainer = document.getElementById('step-drilldown-container');
                 const stepTitle = document.getElementById('step-drilldown-title');
                 const messageEl = document.getElementById('step-drilldown-message');
-                
+
                 stepTitle.textContent = `Step Performance for: ${jobName}`;
                 stepContainer.style.display = 'block';
                 messageEl.textContent = 'Loading...';
@@ -1292,7 +1554,7 @@
 
                 const labels = data.map(d => d.step_name.length > 50 ? d.step_name.substring(0, 47) + '...' : d.step_name);
                 const avgDurationsMs = data.map(d => d.avg_success_duration_ms || d.avg_duration_ms || null);
-                
+
                 const maxDuration = avgDurationsMs.filter(d => d !== null).reduce((max, d) => Math.max(max, d), 0);
                 const unit = getDurationUnit(maxDuration);
                 const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
@@ -1316,27 +1578,27 @@
                         plugins: {
                             tooltip: {
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         let label = context.dataset.label || '';
                                         if (label) { label += ': '; }
-                                        if (context.parsed.x !== null) { 
+                                        if (context.parsed.x !== null) {
                                             const ms = context.parsed.x * divisor;
                                             label += formatDuration(ms);
                                         }
                                         return label;
                                     },
-                                    afterLabel: function(context) {
+                                    afterLabel: function (context) {
                                         const stepData = data[context.dataIndex];
                                         return [`Total Runs: ${stepData.total_runs}`, `Success Rate: ${stepData.success_rate}%`];
                                     }
                                 }
                             }
                         },
-                        scales: { 
-                            x: { 
-                                beginAtZero: true, 
-                                title: { display: true, text: `Avg Duration (${unit})` } 
-                            } 
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                title: { display: true, text: `Avg Duration (${unit})` }
+                            }
                         }
                     }
                 });
@@ -1356,7 +1618,7 @@
                 const trendContainer = document.getElementById('job-trend-container');
                 const trendTitle = document.getElementById('job-trend-title');
                 const messageEl = document.getElementById('job-trend-message');
-                
+
                 trendTitle.textContent = `Performance Trend for: ${jobName}`;
                 trendContainer.style.display = 'block';
                 messageEl.textContent = 'Loading...';
@@ -1416,7 +1678,7 @@
                 const maxDuration = allDurations.length > 0 ? Math.max(...allDurations) : 0;
                 const unit = getDurationUnit(maxDuration);
                 const divisor = unit === 'hours' ? 3600000 : unit === 'minutes' ? 60000 : 1000;
-                
+
                 const avgDurationData = data.map(d => d.avg_duration_ms ? (d.avg_duration_ms / divisor) : null);
                 const p95DurationData = data.map(d => d.p95_duration_ms ? (d.p95_duration_ms / divisor) : null);
 
@@ -1445,7 +1707,7 @@
                         plugins: {
                             tooltip: {
                                 callbacks: {
-                                    label: function(context) {
+                                    label: function (context) {
                                         let label = context.dataset.label || '';
                                         if (context.parsed.y !== null) {
                                             const ms = context.parsed.y * divisor;
@@ -1500,7 +1762,7 @@
 
                 if (startDate) params.append('start_date', startDate);
                 if (endDate) params.append('end_date', endDate);
-                
+
                 const selectedConclusions = getSelectedConclusions();
                 if (selectedConclusions.length > 0) {
                     params.append('conclusions', selectedConclusions.join(','));
@@ -1517,34 +1779,35 @@
                         fetch(trendsUrl),
                         fetch(overallMetricsUrl)
                     ]);
-                    
+
                     if (!trendsResponse.ok) {
                         const errorData = await trendsResponse.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`Trends API Error (${trendsResponse.status}): ${errorData.error || trendsResponse.statusText}`);
                     }
-                    
+
                     if (!overallMetricsResponse.ok) {
                         const errorData = await overallMetricsResponse.json().catch(() => ({ error: 'Failed to parse error JSON' }));
                         throw new Error(`Overall Metrics API Error (${overallMetricsResponse.status}): ${errorData.error || overallMetricsResponse.statusText}`);
                     }
-                    
+
                     const trendsData = await trendsResponse.json();
                     const overallMetrics = await overallMetricsResponse.json();
 
                     console.log("Trends API Response Data:", trendsData);
                     console.log("Overall Metrics API Response Data:", overallMetrics);
-                    
+
                     // Extract the data array from the response (API returns {data: [...], metadata: {...}})
                     const data = trendsData.data || trendsData;
                     currentTrendsData = data;
-                    
+
                     renderSummaryMetrics(data, overallMetrics);
                     renderTrendsChart(data);
                     renderOutcomesChart(data);
                     renderRunsPerPeriodChart(data);
-                    
-                    // Load slowest jobs
+
+                    // Load slowest jobs and flakiness report
                     await loadSlowestJobs();
+                    await loadFlakinessReport();
                 } catch (error) {
                     console.error("Failed to load data:", error);
                 }
@@ -1598,7 +1861,7 @@
 
             async function openFetchModal() {
                 const modal = document.getElementById('fetch-modal');
-                
+
                 // Load default configuration
                 try {
                     const response = await fetch('/api/config');
@@ -1616,7 +1879,7 @@
                 const endDate = new Date();
                 const startDate = new Date();
                 startDate.setDate(endDate.getDate() - 7);
-                
+
                 document.getElementById('fetch-end-date').valueAsDate = endDate;
                 document.getElementById('fetch-start-date').valueAsDate = startDate;
 
@@ -1628,7 +1891,7 @@
             function closeFetchModal() {
                 const modal = document.getElementById('fetch-modal');
                 modal.style.display = 'none';
-                
+
                 // Clear any error messages
                 hideError('config-error');
                 hideError('preview-error');
@@ -1645,10 +1908,10 @@
 
             function showError(elementId, message, errorType) {
                 const errorElement = document.getElementById(elementId);
-                
+
                 // Format error message based on type
                 let formattedMessage = message;
-                
+
                 if (errorType === 'authentication') {
                     formattedMessage = `<strong>Authentication Error:</strong><br>${message}`;
                     if (message.includes('not configured') || message.includes('missing')) {
@@ -1665,7 +1928,7 @@
                 } else {
                     formattedMessage = `<strong>Error:</strong><br>${message}`;
                 }
-                
+
                 errorElement.innerHTML = formattedMessage;
                 errorElement.style.display = 'block';
             }
@@ -1688,18 +1951,18 @@
                 if (!owner) missingFields.push('Owner');
                 if (!repo) missingFields.push('Repository');
                 if (!workflowId) missingFields.push('Workflow ID');
-                
+
                 if (missingFields.length > 0) {
-                    return { 
-                        valid: false, 
+                    return {
+                        valid: false,
                         error: `Missing required field${missingFields.length > 1 ? 's' : ''}: ${missingFields.join(', ')}`,
                         errorType: 'validation'
                     };
                 }
 
                 if (!startDate || !endDate) {
-                    return { 
-                        valid: false, 
+                    return {
+                        valid: false,
                         error: 'Please select both start and end dates',
                         errorType: 'validation'
                     };
@@ -1710,16 +1973,16 @@
                 const end = new Date(endDate);
 
                 if (isNaN(start.getTime()) || isNaN(end.getTime())) {
-                    return { 
-                        valid: false, 
+                    return {
+                        valid: false,
                         error: 'Invalid date format. Please select valid dates.',
                         errorType: 'validation'
                     };
                 }
 
                 if (end <= start) {
-                    return { 
-                        valid: false, 
+                    return {
+                        valid: false,
                         error: 'End date must be after start date',
                         errorType: 'validation'
                     };
@@ -1768,8 +2031,8 @@
                             owner,
                             repo,
                             workflow_id: workflowId,
-                            start_date: new Date(startDate + 'T00:00:00Z').toISOString(),
-                            end_date: new Date(endDate + 'T23:59:59.999Z').toISOString()
+                            start_date: new Date(startDate).toISOString(),
+                            end_date: new Date(endDate).toISOString()
                         })
                     });
 
@@ -1780,23 +2043,30 @@
                     }
 
                     // Display preview information
-                    document.getElementById('workflow-count-text').textContent = 
-                        `Found ${data.workflow_count} workflow run${data.workflow_count !== 1 ? 's' : ''} in this period`;
-                    
+                    const countSuffix = data.workflow_count !== 1 ? 's' : '';
+                    const estimatePrefix = data.is_estimate ? '~' : '';
+                    document.getElementById('workflow-count-text').textContent =
+                        `Found ${estimatePrefix}${data.workflow_count} workflow run${countSuffix} in this period`;
+
                     const startFormatted = new Date(data.date_range.start).toLocaleDateString();
                     const endFormatted = new Date(data.date_range.end).toLocaleDateString();
-                    document.getElementById('date-range-text').textContent = 
-                        `Date range: ${startFormatted} to ${endFormatted}`;
+                    let dateRangeText = `Date range: ${startFormatted} to ${endFormatted}`;
+
+                    if (data.note) {
+                        dateRangeText += `\n\n${data.note}`;
+                    }
+
+                    document.getElementById('date-range-text').textContent = dateRangeText;
 
                     showModalSection('preview');
 
                 } catch (error) {
                     console.error('Preview failed:', error);
-                    
+
                     // Parse error response if available
                     let errorMessage = error.message;
                     let errorType = 'internal';
-                    
+
                     // Try to extract error details from response
                     try {
                         const errorData = JSON.parse(error.message);
@@ -1810,12 +2080,12 @@
                     } catch (e) {
                         // Not JSON, use original message
                         // Determine error type from message content
-                        if (errorMessage.includes('401') || errorMessage.includes('authentication') || 
+                        if (errorMessage.includes('401') || errorMessage.includes('authentication') ||
                             errorMessage.includes('token not configured') || errorMessage.includes('token is missing')) {
                             errorType = 'authentication';
                             errorMessage = 'GitHub token not configured';
-                        } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden') || 
-                                   errorMessage.includes('permissions')) {
+                        } else if (errorMessage.includes('403') || errorMessage.includes('Forbidden') ||
+                            errorMessage.includes('permissions')) {
                             errorType = 'authentication';
                             errorMessage = 'Insufficient GitHub API permissions';
                         } else if (errorMessage.includes('404')) {
@@ -1827,7 +2097,7 @@
                             errorType = 'validation';
                         }
                     }
-                    
+
                     showError('config-error', errorMessage, errorType);
                 } finally {
                     previewBtn.disabled = false;
@@ -1859,8 +2129,8 @@
                             owner,
                             repo,
                             workflow_id: workflowId,
-                            start_date: new Date(startDate + 'T00:00:00Z').toISOString(),
-                            end_date: new Date(endDate + 'T23:59:59.999Z').toISOString()
+                            start_date: new Date(startDate).toISOString(),
+                            end_date: new Date(endDate).toISOString()
                         })
                     });
 
@@ -1876,11 +2146,11 @@
 
                 } catch (error) {
                     console.error('Failed to start fetch:', error);
-                    
+
                     // Parse error response
                     let errorMessage = error.message;
                     let errorType = 'internal';
-                    
+
                     try {
                         const errorData = JSON.parse(error.message);
                         if (errorData.error) {
@@ -1898,7 +2168,7 @@
                             errorType = 'validation';
                         }
                     }
-                    
+
                     showError('preview-error', errorMessage, errorType);
                     confirmBtn.disabled = false;
                     confirmBtn.textContent = 'Start Fetch';
@@ -1969,17 +2239,17 @@
                 }
 
                 const { current, total, message } = progress;
-                
+
                 // Update progress bar
                 const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
                 document.getElementById('progress-fill').style.width = `${percentage}%`;
-                
+
                 // Update progress text
                 document.getElementById('progress-text').textContent = message || 'Processing...';
-                
+
                 // Update count
                 if (current !== undefined && total !== undefined) {
-                    document.getElementById('progress-count').textContent = 
+                    document.getElementById('progress-count').textContent =
                         `Workflow ${current} of ${total}`;
                 }
             }
@@ -1991,7 +2261,7 @@
                     // Show error state
                     document.getElementById('results-title').textContent = 'Fetch Failed';
                     document.getElementById('results-summary').innerHTML = '';
-                    
+
                     const errorText = errorMessage || 'An unknown error occurred during the fetch operation.';
                     showError('results-error', errorText);
                 } else {
@@ -2003,12 +2273,12 @@
                     const summaryHtml = `
                         <p><strong>Runs Collected:</strong> ${result.runs_collected || 0}</p>
                         <p><strong>Runs Skipped:</strong> ${result.runs_skipped || 0} (already in database)</p>
-                        ${result.incomplete_runs_stored !== undefined ? 
+                        ${result.incomplete_runs_stored !== undefined ?
                             `<p><strong>Incomplete Runs Stored:</strong> ${result.incomplete_runs_stored}</p>` : ''}
-                        ${result.incomplete_runs_skipped !== undefined ? 
+                        ${result.incomplete_runs_skipped !== undefined ?
                             `<p><strong>Incomplete Runs Skipped:</strong> ${result.incomplete_runs_skipped}</p>` : ''}
-                        ${result.errors && result.errors.length > 0 ? 
-                            `<p style="color: #d73a49;"><strong>Errors:</strong> ${result.errors.length} error(s) encountered</p>` : 
+                        ${result.errors && result.errors.length > 0 ?
+                            `<p style="color: #d73a49;"><strong>Errors:</strong> ${result.errors.length} error(s) encountered</p>` :
                             '<p style="color: #2ea44f;"><strong>Status:</strong> Completed successfully</p>'}
                     `;
 
@@ -2017,13 +2287,184 @@
                     // Show error details if any
                     if (result.errors && result.errors.length > 0) {
                         const errorDetails = result.errors.slice(0, 5).join('\n');
-                        const moreErrors = result.errors.length > 5 ? 
+                        const moreErrors = result.errors.length > 5 ?
                             `\n... and ${result.errors.length - 5} more error(s)` : '';
                         showError('results-error', `Errors encountered:\n${errorDetails}${moreErrors}`);
                     }
                 }
             }
+
+            // Settings Modal Functions
+            function initializeSettingsModal() {
+                const settingsBtn = document.getElementById('settings-btn');
+                const settingsModal = document.getElementById('settings-modal');
+                const closeSettingsBtn = document.getElementById('close-settings-btn');
+                const saveTokenBtn = document.getElementById('save-token-btn');
+                const removeTokenBtn = document.getElementById('remove-token-btn');
+                const modalOverlay = settingsModal.querySelector('.modal-overlay');
+
+                // Open settings modal
+                settingsBtn.addEventListener('click', () => {
+                    settingsModal.style.display = 'block';
+                    updateTokenStatusInfo();
+                    document.getElementById('github-token-input').value = '';
+                    hideTokenMessage();
+                });
+
+                // Close settings modal
+                closeSettingsBtn.addEventListener('click', () => {
+                    settingsModal.style.display = 'none';
+                    hideTokenMessage();
+                });
+
+                modalOverlay.addEventListener('click', () => {
+                    settingsModal.style.display = 'none';
+                    hideTokenMessage();
+                });
+
+                // Save token
+                saveTokenBtn.addEventListener('click', async () => {
+                    const token = document.getElementById('github-token-input').value.trim();
+
+                    if (!token) {
+                        showTokenMessage('Please enter a GitHub token', 'error');
+                        return;
+                    }
+
+                    // Disable button during save
+                    saveTokenBtn.disabled = true;
+                    saveTokenBtn.textContent = 'Saving...';
+
+                    try {
+                        const response = await fetch('/api/config/token', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ token })
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            showTokenMessage('Token saved successfully!', 'success');
+                            document.getElementById('github-token-input').value = '';
+                            updateTokenStatusInfo();
+                            checkTokenStatus();
+                        } else {
+                            showTokenMessage(data.error || 'Failed to save token', 'error');
+                        }
+                    } catch (error) {
+                        showTokenMessage('Network error: ' + error.message, 'error');
+                    } finally {
+                        saveTokenBtn.disabled = false;
+                        saveTokenBtn.textContent = 'Save Token';
+                    }
+                });
+
+                // Remove token
+                removeTokenBtn.addEventListener('click', async () => {
+                    if (!confirm('Are you sure you want to remove the stored GitHub token?')) {
+                        return;
+                    }
+
+                    removeTokenBtn.disabled = true;
+                    removeTokenBtn.textContent = 'Removing...';
+
+                    try {
+                        const response = await fetch('/api/config/token', {
+                            method: 'DELETE'
+                        });
+
+                        const data = await response.json();
+
+                        if (response.ok) {
+                            showTokenMessage('Token removed successfully', 'success');
+                            updateTokenStatusInfo();
+                            checkTokenStatus();
+                        } else {
+                            showTokenMessage(data.error || 'Failed to remove token', 'error');
+                        }
+                    } catch (error) {
+                        showTokenMessage('Network error: ' + error.message, 'error');
+                    } finally {
+                        removeTokenBtn.disabled = false;
+                        removeTokenBtn.textContent = 'Remove Token';
+                    }
+                });
+            }
+
+            async function checkTokenStatus() {
+                try {
+                    const response = await fetch('/api/config/token/status');
+                    const data = await response.json();
+
+                    const indicator = document.getElementById('token-indicator');
+                    const text = document.getElementById('token-text');
+
+                    if (data.configured && data.valid) {
+                        indicator.style.backgroundColor = '#2ea44f'; // Green
+                        text.textContent = `Token configured (${data.source})`;
+                    } else if (data.configured && !data.valid) {
+                        indicator.style.backgroundColor = '#d73a49'; // Red
+                        text.textContent = `Token invalid (${data.source})`;
+                    } else {
+                        indicator.style.backgroundColor = '#ffa500'; // Orange
+                        text.textContent = 'No token configured';
+                    }
+                } catch (error) {
+                    console.error('Failed to check token status:', error);
+                    const indicator = document.getElementById('token-indicator');
+                    const text = document.getElementById('token-text');
+                    indicator.style.backgroundColor = '#6c757d'; // Gray
+                    text.textContent = 'Status unknown';
+                }
+            }
+
+            async function updateTokenStatusInfo() {
+                try {
+                    const response = await fetch('/api/config/token/status');
+                    const data = await response.json();
+
+                    const statusText = data.configured ?
+                        (data.valid ? '✓ Configured and valid' : '✗ Configured but invalid') :
+                        '✗ Not configured';
+
+                    const sourceText = data.source === 'environment' ? 'Environment variable' :
+                        data.source === 'stored' ? 'Stored (encrypted)' :
+                            'None';
+
+                    document.getElementById('current-token-status').textContent = statusText;
+                    document.getElementById('current-token-source').textContent = sourceText;
+                } catch (error) {
+                    console.error('Failed to update token status:', error);
+                    document.getElementById('current-token-status').textContent = 'Error checking status';
+                    document.getElementById('current-token-source').textContent = '-';
+                }
+            }
+
+            function showTokenMessage(message, type) {
+                const messageDiv = document.getElementById('token-config-message');
+                messageDiv.textContent = message;
+                messageDiv.style.display = 'block';
+
+                if (type === 'success') {
+                    messageDiv.style.backgroundColor = '#d4edda';
+                    messageDiv.style.borderColor = '#c3e6cb';
+                    messageDiv.style.color = '#155724';
+                } else {
+                    messageDiv.style.backgroundColor = '#ffeef0';
+                    messageDiv.style.borderColor = '#f97583';
+                    messageDiv.style.color = '#d73a49';
+                }
+            }
+
+            function hideTokenMessage() {
+                const messageDiv = document.getElementById('token-config-message');
+                messageDiv.style.display = 'none';
+            }
         </script>
     </div>
 </body>
+
 </html>

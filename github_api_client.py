@@ -83,7 +83,7 @@ class GitHubApiClient:
 
     def get_jobs_for_run(self, owner, repo, run_id):
         url = f"{self.base_url}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
-        params = {"per_page": 100}
+        params = {"per_page": 100, "filter": "all"}
         
         all_jobs = []
         while url:

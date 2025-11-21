@@ -1,8 +1,10 @@
 import json
-from typing import List, Dict, Any, Union
+from typing import List, Dict, Any, Union, Optional
 from collections import defaultdict
+from datetime import datetime
 import numpy as np
-from data_models import WorkflowRun, Job, Step, PerformanceMetrics
+from data_models import WorkflowRun, Job, Step, PerformanceMetrics, FlakyJobSummary
+from utils import generate_github_job_url
 
 class StatsCalculator:
     def calculate_run_statistics(self, workflow_runs: List[WorkflowRun]) -> PerformanceMetrics:
@@ -358,6 +360,143 @@ class StatsCalculator:
                 "iqr_upper_bound": upper_bound,
             }
         return metrics
+
+    def calculate_flakiness_metrics(
+        self,
+        flaky_jobs_data: List[Dict[str, Any]],
+        owner: str,
+        repo: str,
+        start_date: datetime,
+        end_date: datetime,
+        limit: int = 10
+    ) -> List[FlakyJobSummary]:
+        """
+        Calculates time-weighted flakiness scores and formats results.
+        
+        Algorithm:
+        1. For each job, iterate through flaky event timestamps
+        2. Calculate weight for each event: weight = 1 - (days_ago / total_days)
+        3. Sum weights to get flakiness_score
+        4. Calculate flake_rate = (flake_count / total_runs) * 100
+        5. Sum wasted_ci_time_ms from failed attempts
+        6. Format last_flaked_context for UI display
+        7. Sort by flakiness_score descending
+        8. Return top N jobs
+        
+        :param flaky_jobs_data: List of dicts from database.get_flaky_jobs_summary()
+        :param owner: Repository owner
+        :param repo: Repository name
+        :param start_date: Start of time range for analysis
+        :param end_date: End of time range for analysis
+        :param limit: Maximum number of jobs to return (default: 10)
+        :return: List of FlakyJobSummary objects sorted by flakiness_score
+        """
+        if not flaky_jobs_data:
+            return []
+        
+        total_days = (end_date - start_date).days
+        if total_days == 0:
+            total_days = 1  # Avoid division by zero for same-day ranges
+        
+        flaky_summaries = []
+        
+        for job_data in flaky_jobs_data:
+            job_name = job_data['job_name']
+            flaky_events = job_data['flaky_events']
+            last_flake_context = job_data['last_flake_context']
+            
+            # Calculate time-weighted flakiness score
+            flakiness_score = 0.0
+            for event_timestamp_str in flaky_events:
+                # Parse timestamp string to datetime
+                event_timestamp = datetime.fromisoformat(event_timestamp_str.replace("Z", "+00:00"))
+                
+                # Calculate days ago from end_date
+                days_ago = (end_date - event_timestamp).days
+                
+                # Calculate weight with linear decay
+                weight = 1.0 - (days_ago / total_days)
+                weight = max(0.0, weight)  # Ensure non-negative
+                
+                flakiness_score += weight
+            
+            # Calculate flake rate
+            flake_count = len(flaky_events)
+            total_runs = job_data.get('total_runs', flake_count)
+            flake_rate = (flake_count / total_runs) * 100 if total_runs > 0 else 0.0
+            
+            # Calculate wasted CI time
+            wasted_ci_time_ms = job_data.get('wasted_ci_time_ms', 0)
+            
+            # Format last flaked context
+            formatted_context = self._format_flake_context(
+                last_flake_context, owner, repo
+            )
+            
+            # Create FlakyJobSummary
+            summary = FlakyJobSummary(
+                job_name=job_name,
+                flakiness_score=flakiness_score,
+                flake_rate=flake_rate,
+                flake_count=flake_count,
+                total_runs=total_runs,
+                wasted_ci_time_ms=wasted_ci_time_ms,
+                last_flaked_context=formatted_context
+            )
+            
+            flaky_summaries.append(summary)
+        
+        # Sort by flakiness_score descending
+        flaky_summaries.sort(key=lambda x: x.flakiness_score, reverse=True)
+        
+        # Apply limit
+        return flaky_summaries[:limit]
+    
+    def _format_flake_context(
+        self, 
+        context: Dict[str, Any], 
+        owner: str, 
+        repo: str
+    ) -> Dict[str, str]:
+        """
+        Formats the last flaked context for API response.
+        
+        Returns dict with:
+        - type: "pr" or "branch"
+        - display_text: "PR #12345" or "main @ a1b2c3d"
+        - url: Link to PR or commit on GitHub
+        - job_url: Link to failed job execution
+        
+        :param context: Context dict from database with workflow/job details
+        :param owner: Repository owner
+        :param repo: Repository name
+        :return: Formatted context dict for API response
+        """
+        workflow_run_id = context.get('workflow_run_id')
+        job_id = context.get('job_id')
+        pull_request_number = context.get('pull_request_number')
+        head_branch = context.get('head_branch', 'unknown')
+        head_sha = context.get('head_sha', '')
+        
+        # Generate job URL
+        job_url = generate_github_job_url(owner, repo, workflow_run_id, job_id)
+        
+        # Format based on PR or branch context
+        if pull_request_number:
+            return {
+                'type': 'pr',
+                'display_text': f"PR #{pull_request_number}",
+                'url': f"https://github.com/{owner}/{repo}/pull/{pull_request_number}",
+                'job_url': job_url
+            }
+        else:
+            short_sha = head_sha[:7] if head_sha else 'unknown'
+            return {
+                'type': 'branch',
+                'display_text': f"{head_branch} @ {short_sha}",
+                'url': f"https://github.com/{owner}/{repo}/commit/{head_sha}",
+                'job_url': job_url
+            }
 
 if __name__ == '__main__':
     # Example Usage (requires dummy data or actual collected data)

@@ -33,6 +33,7 @@ class Job:
     steps: List[Step] = field(default_factory=list)
     matrix_config: Optional[Dict[str, Any]] = None
     duration_ms: Optional[int] = None
+    run_attempt: Optional[int] = None
 
     def __post_init__(self):
         if self.started_at and isinstance(self.started_at, str):
@@ -55,6 +56,8 @@ class WorkflowRun:
     run_number: int
     jobs: List[Job] = field(default_factory=list)
     duration_ms: Optional[int] = None
+    head_sha: Optional[str] = None
+    pull_request_number: Optional[int] = None
 
     def __post_init__(self):
         if isinstance(self.created_at, str):
@@ -126,3 +129,14 @@ class PerformanceMetrics:
     matrix_metrics: Dict[str, Any] = field(default_factory=dict) # Keyed by matrix config string
 
 
+
+@dataclass
+class FlakyJobSummary:
+    """Represents flakiness metrics for a single job."""
+    job_name: str
+    flakiness_score: float
+    flake_rate: float
+    flake_count: int
+    total_runs: int
+    wasted_ci_time_ms: int
+    last_flaked_context: Dict[str, str]

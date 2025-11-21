@@ -1,5 +1,5 @@
 from flask import Flask, jsonify, request, render_template, Response
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import numpy as np
 import os
@@ -9,8 +9,11 @@ from database import GHADatabase
 from report_exporter import ReportExporter
 from utils import generate_github_job_url, analyze_repl_build_steps
 from fetch_task_manager import FetchTaskManager, execute_fetch_task
+from stats_calculator import StatsCalculator
+from config_manager import ConfigManager
 
 app = Flask(__name__)
+print("DEBUG: app.py loaded! ----------------------------------------", flush=True)
 
 # Configuration constants
 DEFAULT_EXCLUDE_STATUSES = ['in_progress', 'queued']
@@ -19,10 +22,13 @@ MAX_JOB_EXECUTIONS_LIMIT = 1000
 
 # In a real app, you might manage the DB connection differently (e.g., per-request context)
 # For simplicity, we'll create a new instance per request or use a global one.
-DB_PATH = "gha_metrics.db"
+DB_PATH = os.environ.get('DB_PATH', '/app/data/gha_metrics.db')
 
 # Initialize global task manager for fetch operations
 task_manager = FetchTaskManager()
+
+# Initialize configuration manager for token management
+config_manager = ConfigManager("/app/data/config.json")
 
 def get_db():
     """Opens a new database connection."""
@@ -154,13 +160,167 @@ def get_config():
       - owner: Repository owner (from GITHUB_OWNER env var or default)
       - repo: Repository name (from GITHUB_REPO env var or default)
       - workflow_id: Workflow file name (from GITHUB_WORKFLOW_ID env var or default)
+      - token_configured: Whether a GitHub token is configured
+      - token_source: Source of the token ('environment', 'stored', or 'none')
     """
     config = {
         "owner": os.getenv("GITHUB_OWNER", "project-chip"),
         "repo": os.getenv("GITHUB_REPO", "connectedhomeip"),
-        "workflow_id": os.getenv("GITHUB_WORKFLOW_ID", "tests.yaml")
+        "workflow_id": os.getenv("GITHUB_WORKFLOW_ID", "tests.yaml"),
+        "token_configured": config_manager.is_token_configured(),
+        "token_source": config_manager.get_token_source()
     }
     return jsonify(config)
+
+@app.route('/api/config/token', methods=['POST'])
+def set_token():
+    """
+    API endpoint to set GitHub token via web interface.
+    
+    Request Body (JSON):
+    - token (str, required): GitHub personal access token
+    
+    Returns:
+    - 200: Token configured successfully
+    - 400: Invalid request or token format
+    - 500: Internal error
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({
+                "error": "Request body must be JSON",
+                "error_type": "validation"
+            }), 400
+        
+        token = data.get('token')
+        if not token:
+            return jsonify({
+                "error": "Missing required parameter: token",
+                "error_type": "validation"
+            }), 400
+        
+        # Validate token format (basic check)
+        token = token.strip()
+        if not token:
+            return jsonify({
+                "error": "Token cannot be empty",
+                "error_type": "validation"
+            }), 400
+        
+        # Validate token format (GitHub tokens start with ghp_, github_pat_, or gho_)
+        if not (token.startswith('ghp_') or token.startswith('github_pat_') or token.startswith('gho_')):
+            return jsonify({
+                "error": "Invalid token format. GitHub tokens should start with 'ghp_', 'github_pat_', or 'gho_'",
+                "error_type": "validation"
+            }), 400
+        
+        # Validate token with GitHub API
+        from github_api_client import GitHubApiClient
+        try:
+            client = GitHubApiClient(token)
+            is_valid, error_msg, error_type = client.validate_token()
+            
+            if not is_valid:
+                status_code = 401 if error_type == "authentication" else 500
+                return jsonify({
+                    "error": error_msg,
+                    "error_type": error_type
+                }), status_code
+        except Exception as e:
+            return jsonify({
+                "error": f"Failed to validate token: {str(e)}",
+                "error_type": "validation"
+            }), 400
+        
+        # Store token using ConfigManager
+        success = config_manager.set_github_token(token)
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "GitHub token configured successfully"
+            }), 200
+        else:
+            return jsonify({
+                "error": "Failed to store token",
+                "error_type": "internal"
+            }), 500
+    
+    except Exception as e:
+        return jsonify({
+            "error": f"Internal server error: {str(e)}",
+            "error_type": "internal"
+        }), 500
+
+@app.route('/api/config/token/status', methods=['GET'])
+def get_token_status():
+    """
+    API endpoint to check if GitHub token is configured.
+    
+    Returns:
+    - JSON object with:
+      - configured: Whether a token is configured
+      - source: Source of the token ('environment', 'stored', or 'none')
+      - valid: Whether the token is valid (requires API call)
+    """
+    try:
+        configured = config_manager.is_token_configured()
+        source = config_manager.get_token_source()
+        
+        # Check if token is valid by attempting to use it
+        valid = False
+        if configured:
+            token = config_manager.get_github_token()
+            if token:
+                from github_api_client import GitHubApiClient
+                try:
+                    client = GitHubApiClient(token)
+                    is_valid, _, _ = client.validate_token()
+                    valid = is_valid
+                except Exception:
+                    valid = False
+        
+        return jsonify({
+            "configured": configured,
+            "source": source,
+            "valid": valid
+        }), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": f"Internal server error: {str(e)}",
+            "error_type": "internal"
+        }), 500
+
+@app.route('/api/config/token', methods=['DELETE'])
+def remove_token():
+    """
+    API endpoint to remove stored GitHub token.
+    
+    Returns:
+    - 200: Token removed successfully
+    - 500: Internal error
+    """
+    try:
+        success = config_manager.remove_github_token()
+        
+        if success:
+            return jsonify({
+                "success": True,
+                "message": "GitHub token removed successfully"
+            }), 200
+        else:
+            return jsonify({
+                "error": "Failed to remove token",
+                "error_type": "internal"
+            }), 500
+    
+    except Exception as e:
+        return jsonify({
+            "error": f"Internal server error: {str(e)}",
+            "error_type": "internal"
+        }), 500
 
 @app.route('/api/fetch/preview', methods=['POST'])
 def fetch_preview():
@@ -210,16 +370,16 @@ def fetch_preview():
         start_date = datetime.fromisoformat(data['start_date'].replace('Z', '+00:00'))
         end_date = datetime.fromisoformat(data['end_date'].replace('Z', '+00:00'))
         
-        # Check for GitHub token
-        token = os.getenv("GITHUB_TOKEN")
+        # Check for GitHub token using ConfigManager
+        token = config_manager.get_github_token()
         if not token:
             return jsonify({
                 "error": "GitHub token not configured",
                 "error_type": "authentication",
-                "details": "Set GITHUB_TOKEN in .env file or environment variables"
+                "details": "Configure GitHub token via web interface or set GITHUB_TOKEN environment variable"
             }), 401
         
-        # Query GitHub API to count workflows
+        # Query GitHub API for a quick preview estimate
         from github_api_client import GitHubApiClient
         
         try:
@@ -235,12 +395,20 @@ def fetch_preview():
                     "details": error_msg
                 }), status_code
             
-            # Format dates for GitHub API
-            created_after = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
-            created_before = end_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+            # For preview, do a quick sample to estimate total count
+            # Sample the first week and extrapolate
+            sample_end = min(start_date + timedelta(days=7), end_date)
+            total_days = (end_date - start_date).days
+            sample_days = (sample_end - start_date).days
             
-            # Fetch workflow runs in the date range
-            workflow_runs = client.get_workflow_runs(
+            if sample_days == 0:
+                sample_days = 1
+            
+            # Fetch sample week
+            created_after = start_date.strftime('%Y-%m-%dT%H:%M:%SZ')
+            created_before = sample_end.strftime('%Y-%m-%dT%H:%M:%SZ')
+            
+            sample_runs = client.get_workflow_runs(
                 owner=owner,
                 repo=repo,
                 workflow_id=workflow_id,
@@ -248,15 +416,33 @@ def fetch_preview():
                 created_before=created_before
             )
             
-            workflow_count = len(workflow_runs)
+            sample_count = len(sample_runs)
             
-            return jsonify({
-                "workflow_count": workflow_count,
+            # If sample is less than 1000, we got all runs for that period
+            # Extrapolate to estimate total
+            if sample_count < 1000:
+                # Simple extrapolation based on sample
+                estimated_count = int((sample_count / sample_days) * total_days)
+                is_estimate = total_days > sample_days
+            else:
+                # Sample hit the limit, so we know there are at least this many
+                # Extrapolate but mark as minimum estimate
+                estimated_count = int((1000 / sample_days) * total_days)
+                is_estimate = True
+            
+            response = {
+                "workflow_count": estimated_count,
                 "date_range": {
                     "start": start_date.isoformat(),
                     "end": end_date.isoformat()
-                }
-            })
+                },
+                "is_estimate": is_estimate
+            }
+            
+            if is_estimate:
+                response["note"] = f"Estimated based on {sample_days}-day sample. Actual fetch will count all workflows accurately."
+            
+            return jsonify(response)
             
         except Exception as e:
             error_str = str(e)
@@ -358,7 +544,7 @@ def fetch_start():
         # Start background thread to execute fetch
         thread = threading.Thread(
             target=execute_fetch_task,
-            args=(task_manager, task_id, owner, repo, workflow_id, start_date, end_date, DB_PATH, skip_incomplete),
+            args=(task_manager, task_id, owner, repo, workflow_id, start_date, end_date, DB_PATH, skip_incomplete, config_manager),
             daemon=True
         )
         thread.start()
@@ -1419,6 +1605,149 @@ def get_job_build_steps(job_name):
         return jsonify({"error": str(e)}), 400
     except Exception as e:
         return jsonify({"error": f"An internal error occurred: {e}"}), 500
+
+
+@app.route('/api/jobs/flakiest', methods=['GET'])
+def get_flakiest_jobs():
+    with open("/app/data/debug.log", "a") as f:
+        f.write("DEBUG: get_flakiest_jobs CALLED!\n")
+    print("DEBUG: get_flakiest_jobs CALLED!", flush=True)
+    """
+    API endpoint to get the flakiest jobs ranked by time-weighted score.
+    
+    Query Parameters:
+    - owner (str, required): Repository owner
+    - repo (str, required): Repository name
+    - workflow_id (str, required): Workflow file name (e.g., 'tests.yaml').
+    - start_date (str, required): ISO 8601 format
+    - end_date (str, required): ISO 8601 format
+    - limit (int, optional): Number of jobs to return (default: 10)
+    - conclusions (str, optional): Comma-separated list of conclusions to include
+    - exclude_statuses (str, optional): Comma-separated list of statuses to exclude (default: 'in_progress,queued')
+    
+    Returns:
+    - 200: JSON array of flaky jobs with metrics
+    - 400: Invalid parameters
+    - 500: Internal error
+    
+    Response Format:
+    [
+      {
+        "job_name": "test-clusters-chip-tool (spec)",
+        "flakiness_score": 15.7,
+        "flake_rate": 75.0,
+        "flake_count": 18,
+        "total_runs": 24,
+        "wasted_ci_time_ms": 12120000,
+        "last_flaked_context": {
+          "type": "pr",
+          "display_text": "PR #12345",
+          "url": "https://github.com/owner/repo/pull/12345",
+          "job_url": "https://github.com/owner/repo/actions/runs/98765/job/54321"
+        }
+      }
+    ]
+    """
+    # Parse and validate required parameters
+    owner = request.args.get('owner')
+    repo = request.args.get('repo')
+    workflow_id = request.args.get('workflow_id')
+    start_date_str = request.args.get('start_date')
+    end_date_str = request.args.get('end_date')
+    
+    if not all([owner, repo, workflow_id, start_date_str, end_date_str]):
+        return jsonify({
+            "error": "Missing required parameters: owner, repo, workflow_id, start_date, end_date"
+        }), 400
+    
+    # Parse dates
+    start_date = parse_date(start_date_str)
+    end_date = parse_date(end_date_str)
+    
+    if not start_date or not end_date:
+        return jsonify({
+            "error": "Invalid date format. Please use ISO 8601 format."
+        }), 400
+    
+    # Parse optional parameters
+    limit_str = request.args.get('limit', '10')
+    try:
+        limit = int(limit_str)
+        if limit <= 0:
+            return jsonify({
+                "error": "Limit must be a positive integer."
+            }), 400
+    except ValueError:
+        return jsonify({
+            "error": "Invalid limit parameter. Must be an integer."
+        }), 400
+    
+    conclusions = parse_conclusions_param(request.args.get('conclusions'))
+    exclude_statuses = parse_exclude_statuses_param(request.args.get('exclude_statuses'))
+    
+    try:
+        # Retrieve raw flaky job data from database
+        print(f"DEBUG: Calling get_flaky_jobs_summary with: owner={owner}, repo={repo}, workflow={workflow_id}, start={start_date}, end={end_date}", flush=True)
+        with get_db() as db:
+            flaky_jobs_data = db.get_flaky_jobs_summary(
+                owner=owner,
+                repo=repo,
+                workflow_id=workflow_id,
+                start_date=start_date,
+                end_date=end_date,
+                conclusions=conclusions,
+                exclude_statuses=exclude_statuses
+            )
+        print(f"DEBUG: get_flaky_jobs_summary returned {len(flaky_jobs_data)} records", flush=True)
+
+        # Calculate flakiness metrics and format results
+        calculator = StatsCalculator()
+        flaky_summaries = calculator.calculate_flakiness_metrics(
+            flaky_jobs_data=flaky_jobs_data,
+            owner=owner,
+            repo=repo,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit
+        )
+        print(f"DEBUG: calculate_flakiness_metrics returned {len(flaky_summaries)} summaries", flush=True)
+        
+        # Convert FlakyJobSummary objects to JSON-serializable dicts
+        results = []
+        for summary in flaky_summaries:
+            results.append({
+                "job_name": summary.job_name,
+                "flakiness_score": round(summary.flakiness_score, 1),
+                "flake_rate": round(summary.flake_rate, 1),
+                "flake_count": summary.flake_count,
+                "total_runs": summary.total_runs,
+                "wasted_ci_time_ms": summary.wasted_ci_time_ms,
+                "last_flaked_context": summary.last_flaked_context
+            })
+        
+        # Handle empty result sets with informative metadata
+        if not results:
+            metadata = build_filter_metadata(conclusions, exclude_statuses)
+            return jsonify({
+                "data": [],
+                "metadata": {
+                    **metadata,
+                    "message": "No flaky jobs found matching the specified filters"
+                }
+            }), 200
+        
+        return jsonify(results)
+    
+    except ValueError as e:
+        # Handle validation errors
+        return jsonify({
+            "error": str(e)
+        }), 400
+    except Exception as e:
+        # Handle internal errors
+        return jsonify({
+            "error": f"An internal error occurred: {e}"
+        }), 500
 
 
 if __name__ == '__main__':

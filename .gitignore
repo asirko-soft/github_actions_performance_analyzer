@@ -6,3 +6,4 @@ __pycache__
 /reports
 /cache
 .DS_Store
+gha_metrics.db

@@ -25,13 +25,23 @@ def main():
 
     args = parser.parse_args()
 
-    if not args.token:
+    from config_manager import ConfigManager
+    
+    # Initialize ConfigManager
+    config_manager = ConfigManager()
+    
+    # Determine token source: argument > env var > stored config
+    token = args.token
+    if not token:
+        token = config_manager.get_github_token()
+
+    if not token:
         print("Error: GitHub Personal Access Token not provided. "
-              "Please set GITHUB_TOKEN environment variable or use --token argument.")
+              "Please set GITHUB_TOKEN environment variable, use --token argument, or configure via the web UI.")
         return
 
-    db_file = "gha_metrics.db"
-    client = GitHubApiClient(args.token)
+    db_file = os.environ.get('DB_PATH', 'gha_metrics.db')
+    client = GitHubApiClient(token)
 
     print(f"Starting data ingestion for workflow '{args.workflow_id}' in {args.owner}/{args.repo}...")
     print(f"Database file: {db_file}")
@@ -61,6 +71,8 @@ def main():
             )
 
             print(f"\nIngestion complete. Successfully collected and stored data for {result['runs_collected']} workflow runs.")
+            if result.get('runs_updated', 0) > 0:
+                print(f"Updated {result['runs_updated']} previously incomplete workflow(s).")
             if result['incomplete_runs_stored'] > 0:
                 print(f"Note: {result['incomplete_runs_stored']} incomplete workflow(s) (in_progress/queued) were stored.")
             if result['incomplete_runs_skipped'] > 0:

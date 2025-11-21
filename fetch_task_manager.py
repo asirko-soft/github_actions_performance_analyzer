@@ -85,7 +85,7 @@ class FetchTaskManager:
         Args:
             task_id: Unique task identifier
             result: Dictionary containing fetch results
-                   (runs_collected, runs_skipped, errors, etc.)
+                   (runs_collected, runs_updated, runs_skipped, incomplete_runs_stored, incomplete_runs_skipped)
         """
         with self.lock:
             if task_id in self.tasks:
@@ -149,7 +149,8 @@ def execute_fetch_task(task_manager: FetchTaskManager, task_id: str,
                        owner: str, repo: str, workflow_id: str, 
                        start_date: datetime, end_date: datetime,
                        db_path: str = "gha_metrics.db",
-                       skip_incomplete: bool = False) -> None:
+                       skip_incomplete: bool = False,
+                       config_manager = None) -> None:
     """
     Background worker function that executes a fetch task in a separate thread.
     
@@ -170,17 +171,31 @@ def execute_fetch_task(task_manager: FetchTaskManager, task_id: str,
         end_date: End date for data collection
         db_path: Path to SQLite database file
         skip_incomplete: Whether to skip incomplete workflows
+        config_manager: ConfigManager instance for token retrieval (optional)
     """
     import os
+    import traceback
     from github_api_client import GitHubApiClient
     from data_collector import DataCollector
     from database import GHADatabase
     
+    # Wrap everything in try-except to ensure task state is always updated
     try:
-        # Validate GitHub token
-        token = os.getenv("GITHUB_TOKEN")
+        print(f"[Task {task_id}] Starting fetch task for {owner}/{repo}/{workflow_id}")
+        print(f"[Task {task_id}] Date range: {start_date} to {end_date}")
+        print(f"[Task {task_id}] Database path: {db_path}")
+    except Exception as e:
+        print(f"[Task {task_id}] Error in initial logging: {e}")
+    
+    try:
+        # Validate GitHub token using ConfigManager if available, otherwise fall back to env var
+        if config_manager:
+            token = config_manager.get_github_token()
+        else:
+            token = os.getenv("GITHUB_TOKEN")
+            
         if not token:
-            task_manager.fail_task(task_id, "GitHub token not configured. Set GITHUB_TOKEN in .env file")
+            task_manager.fail_task(task_id, "GitHub token not configured. Configure via web interface or set GITHUB_TOKEN environment variable")
             return
         
         # Initialize clients with error handling
@@ -235,4 +250,9 @@ def execute_fetch_task(task_manager: FetchTaskManager, task_id: str,
     except Exception as e:
         # Catch any unexpected errors and mark task as failed
         error_message = f"Unexpected error during data collection: {str(e)}"
-        task_manager.fail_task(task_id, error_message)
+        print(f"[Task {task_id}] FATAL ERROR: {error_message}")
+        print(f"[Task {task_id}] Traceback: {traceback.format_exc()}")
+        try:
+            task_manager.fail_task(task_id, error_message)
+        except Exception as fail_error:
+            print(f"[Task {task_id}] Failed to update task status: {fail_error}")

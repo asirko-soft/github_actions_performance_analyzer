@@ -137,6 +137,39 @@ class GHADatabase:
             print(f"An error occurred during schema initialization: {e}")
             self.conn.rollback()
             raise
+        
+        # Add new columns for flakiness detection with graceful error handling
+        migration_queries = [
+            "ALTER TABLE workflows ADD COLUMN head_sha TEXT",
+            "ALTER TABLE workflows ADD COLUMN pull_request_number INTEGER",
+            "ALTER TABLE jobs ADD COLUMN run_attempt INTEGER"
+        ]
+        
+        for query in migration_queries:
+            try:
+                self.conn.execute(query)
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    # Column already exists, continue
+                    pass
+                else:
+                    raise
+        
+        # Create indexes for flakiness queries
+        flakiness_indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_jobs_run_attempt ON jobs(workflow_run_id, name, run_attempt, conclusion)",
+            "CREATE INDEX IF NOT EXISTS idx_workflows_pr ON workflows(id, pull_request_number, head_sha, head_branch)"
+        ]
+        
+        try:
+            for index_query in flakiness_indexes:
+                self.conn.execute(index_query)
+            self.conn.commit()
+            print("Flakiness detection schema migration completed successfully.")
+        except sqlite3.Error as e:
+            print(f"An error occurred during flakiness schema migration: {e}")
+            self.conn.rollback()
+            raise
 
     def save_workflow_run(self, workflow_run: WorkflowRun, owner: str, repo: str, workflow_id: str):
         """
@@ -158,22 +191,24 @@ class GHADatabase:
                 workflow_run.id, owner, repo, workflow_id, workflow_run.name,
                 workflow_run.created_at, workflow_run.updated_at, workflow_run.status,
                 workflow_run.conclusion, workflow_run.duration_ms, workflow_run.event,
-                workflow_run.head_branch, workflow_run.run_number
+                workflow_run.head_branch, workflow_run.run_number,
+                workflow_run.head_sha, workflow_run.pull_request_number
             )
             cursor.execute("""
-                INSERT OR REPLACE INTO workflows (id, owner, repo, workflow_id, name, created_at, updated_at, status, conclusion, duration_ms, event, head_branch, run_number)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO workflows (id, owner, repo, workflow_id, name, created_at, updated_at, status, conclusion, duration_ms, event, head_branch, run_number, head_sha, pull_request_number)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, workflow_data)
 
             for job in workflow_run.jobs:
                 job_data = (
                     job.id, job.workflow_run_id, job.name, job.status, job.conclusion,
                     job.started_at, job.completed_at, job.duration_ms,
-                    json.dumps(job.matrix_config) if job.matrix_config else None
+                    json.dumps(job.matrix_config) if job.matrix_config else None,
+                    job.run_attempt
                 )
                 cursor.execute("""
-                    INSERT OR REPLACE INTO jobs (id, workflow_run_id, name, status, conclusion, started_at, completed_at, duration_ms, matrix_config)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT OR REPLACE INTO jobs (id, workflow_run_id, name, status, conclusion, started_at, completed_at, duration_ms, matrix_config, run_attempt)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, job_data)
 
                 # Old steps are deleted by cascade from job REPLACE. Insert new ones.
@@ -439,6 +474,38 @@ class GHADatabase:
         cursor.execute(query, params)
         rows = cursor.fetchall()
         return {row[0] for row in rows}
+
+    def get_existing_workflow_runs_with_status(self, owner: str, repo: str, workflow_id: str,
+                                               start_date: Optional[datetime] = None,
+                                               end_date: Optional[datetime] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves existing workflow run IDs along with their status from the database.
+        This is useful to identify incomplete runs that need to be updated.
+
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: Optional start date for filtering.
+        :param end_date: Optional end date for filtering.
+        :return: A list of dicts with 'id' and 'status' keys for each workflow run.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        query = "SELECT id, status FROM workflows WHERE owner = ? AND repo = ? AND workflow_id = ?"
+        params = [owner, repo, workflow_id]
+
+        if start_date:
+            query += " AND created_at >= ?"
+            params.append(start_date)
+        if end_date:
+            query += " AND created_at <= ?"
+            params.append(end_date)
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        return [{'id': row[0], 'status': row[1]} for row in rows]
 
     def get_slowest_jobs(self, owner: str, repo: str, workflow_id: str,
                         start_date: datetime, end_date: datetime,
@@ -877,6 +944,189 @@ class GHADatabase:
         cursor.execute(query, params)
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+
+    def get_flaky_jobs_summary(self, owner: str, repo: str, workflow_id: str,
+                              start_date: datetime, end_date: datetime,
+                              conclusions: Optional[List[str]] = None,
+                              exclude_statuses: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """
+        Retrieves flaky job occurrences with context for scoring.
+        
+        A job is classified as "flaky" when it fails on run_attempt=1 but succeeds
+        on a subsequent run_attempt within the same workflow_run_id.
+        
+        :param owner: The repository owner.
+        :param repo: The repository name.
+        :param workflow_id: The workflow file name (e.g., 'ci.yml').
+        :param start_date: The start date for filtering.
+        :param end_date: The end date for filtering.
+        :param conclusions: Optional list of workflow conclusions to filter by.
+        :param exclude_statuses: Optional list of statuses to exclude (default: ['in_progress', 'queued']).
+        :return: List of dicts with:
+            - job_name: Name of the job
+            - flaky_events: List of timestamps when job was flaky
+            - total_runs: Total number of job executions
+            - last_flake_context: Full context of most recent flake
+              - workflow_run_id
+              - job_id
+              - failed_at (timestamp)
+              - duration_ms (of failed attempt)
+              - pull_request_number
+              - head_branch
+              - head_sha
+              - event
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+
+        # Validate conclusions if provided
+        conclusions = validate_conclusions(conclusions)
+
+        # Build the query with CTE to identify flaky occurrences
+        query = """
+            WITH flaky_occurrences AS (
+                -- Identify jobs that failed on first attempt but succeeded on retry
+                SELECT 
+                    j_fail.workflow_run_id,
+                    j_fail.name as job_name,
+                    j_fail.id as failed_job_id,
+                    j_fail.completed_at as failed_at,
+                    j_fail.duration_ms as failed_duration_ms,
+                    w.pull_request_number,
+                    w.head_branch,
+                    w.head_sha,
+                    w.event,
+                    w.created_at
+                FROM jobs j_fail
+                JOIN workflows w ON j_fail.workflow_run_id = w.id
+                WHERE j_fail.run_attempt = 1
+                  AND j_fail.conclusion = 'failure'
+                  AND w.owner = ?
+                  AND w.repo = ?
+                  AND w.workflow_id = ?
+                  AND w.created_at >= ?
+                  AND w.created_at <= ?
+        """
+        params = [owner, repo, workflow_id, start_date, end_date]
+        
+        # Exclude incomplete workflows by default
+        if exclude_statuses is None:
+            exclude_statuses = ['in_progress', 'queued']
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        # Filter by conclusions
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += """
+                  -- Verify that a successful retry exists for this job
+                  AND EXISTS (
+                      SELECT 1 
+                      FROM jobs j_success
+                      WHERE j_success.workflow_run_id = j_fail.workflow_run_id
+                        AND j_success.name = j_fail.name
+                        AND j_success.run_attempt > 1
+                        AND j_success.conclusion = 'success'
+                  )
+            ),
+            aggregated_flakes AS (
+                -- Aggregate flaky events per job name
+                SELECT 
+                    job_name,
+                    GROUP_CONCAT(failed_at) as flaky_events_str,
+                    COUNT(*) as flake_count,
+                    MAX(failed_at) as most_recent_flake
+                FROM flaky_occurrences
+                GROUP BY job_name
+            ),
+            job_totals AS (
+                -- Calculate total runs per job (only run_attempt=1 to avoid counting retries)
+                SELECT 
+                    j.name as job_name,
+                    COUNT(DISTINCT j.workflow_run_id) as total_runs
+                FROM jobs j
+                JOIN workflows w ON j.workflow_run_id = w.id
+                WHERE j.run_attempt = 1
+                  AND w.owner = ?
+                  AND w.repo = ?
+                  AND w.workflow_id = ?
+                  AND w.created_at >= ?
+                  AND w.created_at <= ?
+        """
+        # Add the same filters for job_totals
+        params.extend([owner, repo, workflow_id, start_date, end_date])
+        
+        if exclude_statuses:
+            query += " AND w.conclusion IS NOT NULL"
+            placeholders = ','.join('?' * len(exclude_statuses))
+            query += f" AND w.status NOT IN ({placeholders})"
+            params.extend(exclude_statuses)
+
+        if conclusions:
+            placeholders = ','.join('?' * len(conclusions))
+            query += f" AND w.conclusion IN ({placeholders})"
+            params.extend(conclusions)
+        
+        query += """
+                GROUP BY j.name
+            )
+            -- Final result: join aggregated flakes with context from most recent flake
+            SELECT 
+                af.job_name as job_name,
+                af.flaky_events_str as flaky_events_str,
+                af.flake_count as flake_count,
+                jt.total_runs as total_runs,
+                fo.workflow_run_id as workflow_run_id,
+                fo.failed_job_id as job_id,
+                fo.failed_at as failed_at,
+                fo.failed_duration_ms as duration_ms,
+                fo.pull_request_number as pull_request_number,
+                fo.head_branch as head_branch,
+                fo.head_sha as head_sha,
+                fo.event as event
+            FROM aggregated_flakes af
+            JOIN job_totals jt ON af.job_name = jt.job_name
+            JOIN flaky_occurrences fo ON af.job_name = fo.job_name 
+                AND af.most_recent_flake = fo.failed_at
+            ORDER BY af.job_name
+        """
+
+        cursor = self.conn.cursor()
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        
+        # Transform results into the expected format
+        results = []
+        for row in rows:
+            row_dict = dict(row)
+            # Parse the comma-separated flaky events string into a list
+            flaky_events_str = row_dict.get('flaky_events_str', '')
+            flaky_events = flaky_events_str.split(',') if flaky_events_str else []
+            
+            result = {
+                'job_name': row_dict['job_name'],
+                'flaky_events': flaky_events,
+                'total_runs': row_dict['total_runs'],
+                'last_flake_context': {
+                    'workflow_run_id': row_dict['workflow_run_id'],
+                    'job_id': row_dict['job_id'],
+                    'failed_at': row_dict['failed_at'],
+                    'duration_ms': row_dict['duration_ms'],
+                    'pull_request_number': row_dict['pull_request_number'],
+                    'head_branch': row_dict['head_branch'],
+                    'head_sha': row_dict['head_sha'],
+                    'event': row_dict['event']
+                }
+            }
+            results.append(result)
+        
+        return results
 
     def get_workflow_job_based_durations(self, owner: str, repo: str, workflow_id: str,
                                         start_date: Optional[datetime] = None,

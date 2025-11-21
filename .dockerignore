@@ -1,0 +1,61 @@
+# Version control
+.git
+.gitignore
+
+# Python virtual environments
+.venv
+venv/
+env/
+ENV/
+
+# Python cache files
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Environment variables
+.env
+.env.local
+
+# Database files (should use volume mounts)
+gha_metrics.db
+gha_metrics.db-journal
+gha_metrics.db-wal
+gha_metrics.db-shm
+
+# Cache directory (should use volume mounts)
+cache/
+cache/*
+
+# Reports directory (should use volume mounts)
+reports/
+reports/*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation (not needed in container)
+README.md
+*.md
+
+# CI/CD files
+.github/
+
+# Docker files (not needed in image)
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Test files
+test_*.py
+*_test.py
+
+# Spec files
+.kiro/
