@@ -63,6 +63,13 @@ You should see the GitHub Actions Performance Dashboard.
     *   Click the **Settings (⚙️)** button in the top right corner of the dashboard.
     *   Enter your **GitHub Personal Access Token**. This is required to fetch data from the GitHub API.
     *   Click **Save Token**.
+    
+    **Required Permissions:**
+    The token needs the following scopes:
+    *   `repo` (Full control of private repositories) - Required for private repos.
+    *   `public_repo` (Access public repositories) - Sufficient for public repos.
+    *   `workflow` (Update GitHub Action workflows) - Often included with `repo`, but good to verify.
+    *   `read:user` (Read all user profile data) - Used for token validation.
 
 2.  **Fetch Data:**
     *   In the main control panel, enter the **Repository Owner**, **Repository Name**, and **Workflow ID** (e.g., `tests.yaml`) you want to analyze.
