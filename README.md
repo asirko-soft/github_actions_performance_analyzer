@@ -11,8 +11,7 @@ Follow these steps to get the application running quickly using Docker.
 First, pull the latest version of the application from the GitHub Container Registry (GHCR).
 
 ```bash
-# Replace <your-username> with the actual namespace where the image is hosted
-docker pull ghcr.io/<your-username>/gha-performance-analyzer:latest
+docker pull ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
 ```
 
 ### Step 2: Prepare Data Directories (Persistence)
@@ -33,21 +32,21 @@ Run the following command to start the application. This command mounts your loc
 
 ```bash
 docker run -d \
-  -p 5000:5000 \
+  -p 5002:5000 \
   -v $(pwd)/gha-data:/app/data \
   --name gha-analyzer \
-  ghcr.io/<your-username>/gha-performance-analyzer:latest
+  ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
 ```
 
 *   `-d`: Runs the container in the background (detached mode).
-*   `-p 5000:5000`: Maps port 5000 on your machine to the container.
+*   `-p 5002:5000`: Maps port 5002 on your machine to the container.
 *   `-v $(pwd)/gha-data:/app/data`: Saves your database and config to your local folder.
 
 ### Step 4: Access the Dashboard
 
 Open your web browser and navigate to:
 
-**[http://localhost:5000](http://localhost:5000)**
+**[http://localhost:5002](http://localhost:5002)**
 
 You should see the GitHub Actions Performance Dashboard.
 
@@ -88,7 +87,7 @@ Start the Flask web server:
 python app.py
 ```
 
-Navigate to http://localhost:5000 to view the dashboard.
+Navigate to http://localhost:5002 to view the dashboard.
 
 ### Run Tests
 
@@ -124,12 +123,12 @@ For more complex deployments, you can use named volumes or Docker Compose.
 ### Using Named Volumes
 
 ```bash
-docker run -d -p 5000:5000 \
+docker run -d -p 5002:5000 \
   -v gha-data:/app/data \
   -v gha-cache:/app/cache \
   -v gha-reports:/app/reports \
   --name gha-analyzer \
-  ghcr.io/<your-username>/gha-performance-analyzer:latest
+  ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
 ```
 
 ### Docker Compose
@@ -141,10 +140,10 @@ version: '3.8'
 
 services:
   gha-analyzer:
-    image: ghcr.io/<your-username>/gha-performance-analyzer:latest
+    image: ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
     container_name: gha-analyzer
     ports:
-      - "5000:5000"
+      - "5002:5000"
     volumes:
       - gha-data:/app/data
     restart: unless-stopped
