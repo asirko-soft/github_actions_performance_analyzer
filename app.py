@@ -1,4 +1,4 @@
-from flask import Flask, jsonify, request, render_template, Response
+from flask import Flask, jsonify, request, render_template, Response, g
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 import numpy as np
