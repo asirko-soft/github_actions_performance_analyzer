@@ -6,10 +6,15 @@ Analyze GitHub Actions workflow performance with detailed metrics and trends.
 
 Follow these steps to get the application running quickly using Docker.
 
-### Step 1: Pull the Docker Image
+### Step 1: Build the Docker Image (Recommended)
 
-First, pull the latest version of the application from the GitHub Container Registry (GHCR).
+Since the public image might be outdated or missing dependencies, it is recommended to build the image locally.
 
+```bash
+docker build -t gha-performance-analyzer:local .
+```
+
+Alternatively, you can pull from GHCR (may be outdated):
 ```bash
 docker pull ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
 ```
@@ -35,8 +40,10 @@ docker run -d \
   -p 5002:5000 \
   -v $(pwd)/gha-data:/app/data \
   --name gha-analyzer \
-  ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
+  gha-performance-analyzer:local
 ```
+
+If you pulled the image from GHCR, replace `gha-performance-analyzer:local` with `ghcr.io/asirko-soft/github_actions_performance_analyzer:latest`.
 
 *   `-d`: Runs the container in the background (detached mode).
 *   `-p 5002:5000`: Maps port 5002 on your machine to the container.
@@ -128,7 +135,7 @@ docker run -d -p 5002:5000 \
   -v gha-cache:/app/cache \
   -v gha-reports:/app/reports \
   --name gha-analyzer \
-  ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
+  gha-performance-analyzer:local
 ```
 
 ### Docker Compose
@@ -140,7 +147,8 @@ version: '3.8'
 
 services:
   gha-analyzer:
-    image: ghcr.io/asirko-soft/github_actions_performance_analyzer:latest
+    image: gha-performance-analyzer:local
+    build: .
     container_name: gha-analyzer
     ports:
       - "5002:5000"
