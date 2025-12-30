@@ -22,19 +22,20 @@ MAX_JOB_EXECUTIONS_LIMIT = 1000
 
 # In a real app, you might manage the DB connection differently (e.g., per-request context)
 # For simplicity, we'll create a new instance per request or use a global one.
-DB_PATH = os.environ.get('DB_PATH', '/app/data/gha_metrics.db')
+# Use environment variable with fallback to local path for development
+DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'data', 'gha_metrics.db'))
+CONFIG_PATH = os.environ.get('CONFIG_PATH', os.path.join(os.path.dirname(__file__), 'data', 'config.json'))
 
 # Initialize global task manager for fetch operations
 task_manager = FetchTaskManager()
 
 # Initialize configuration manager for token management
-config_manager = ConfigManager("/app/data/config.json")
+config_manager = ConfigManager(CONFIG_PATH)
 
 def get_db():
     """Opens a new database connection."""
     if 'db' not in g:
-        db_path = os.getenv("DB_PATH", "/app/data/gha_metrics.db")
-        g.db = GHADatabase(db_path)
+        g.db = GHADatabase(DB_PATH)
         g.db.connect()
     return g.db
 
@@ -1619,7 +1620,8 @@ def get_job_build_steps(job_name):
 
 @app.route('/api/jobs/flakiest', methods=['GET'])
 def get_flakiest_jobs():
-    with open("/app/data/debug.log", "a") as f:
+    debug_log_path = os.path.join(os.path.dirname(__file__), 'data', 'debug.log')
+    with open(debug_log_path, "a") as f:
         f.write("DEBUG: get_flakiest_jobs CALLED!\n")
     print("DEBUG: get_flakiest_jobs CALLED!", flush=True)
     """
