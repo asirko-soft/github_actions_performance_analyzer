@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional, Dict, Callable
+from typing import Optional, Dict, Callable, List, Tuple
 import re
+import time
+import concurrent.futures
 
 from github_api_client import GitHubApiClient
 from data_models import WorkflowRun, Job, Step
@@ -211,64 +213,105 @@ class DataCollector:
         current_start = self._normalize_utc(start_date)
         final_end = self._normalize_utc(end_date)
 
-        # First pass: collect all workflow runs using adaptive batching
+        # First pass: collect all workflow runs using PARALLEL adaptive batching
         all_raw_runs = []
-        batch_count = 0
         
         if progress_callback:
             progress_callback(0, 0, "Starting data collection...")
         
-        # Use a queue to handle batch subdivision
-        # Start with 7-day batches
+        # Create initial 7-day batches
         batch_delta = timedelta(days=7)
-        batches_to_process = []
+        initial_batches: List[Tuple[datetime, datetime]] = []
         temp_start = current_start
         while temp_start < final_end:
             temp_end = min(temp_start + batch_delta, final_end)
-            batches_to_process.append((temp_start, temp_end))
+            initial_batches.append((temp_start, temp_end))
             temp_start = temp_end
         
-        # Process batches with adaptive subdivision
-        while batches_to_process:
-            batch_start, batch_end = batches_to_process.pop(0)
-            batch_count += 1
-            
-            if progress_callback:
-                progress_callback(0, 0, f"Fetching batch {batch_count}: {batch_start.date()} to {batch_end.date()}")
-            
+        total_initial_batches = len(initial_batches)
+        print(f"[Phase 1] Fetching workflow run listings in {total_initial_batches} parallel batches...")
+        phase1_start = time.time()
+        
+        if progress_callback:
+            progress_callback(0, 0, f"Fetching {total_initial_batches} date batches in parallel...")
+        
+        # Helper function to fetch a single batch
+        def fetch_batch(batch_info: Tuple[int, datetime, datetime]) -> Tuple[int, List, bool, datetime, datetime]:
+            """Fetch runs for a single batch. Returns (batch_idx, runs, needs_subdivision, start, end)"""
+            batch_idx, batch_start, batch_end = batch_info
             batch_runs = self.github_client.get_workflow_runs(
                 owner, repo, workflow_id, branch,
                 self._to_github_iso(batch_start),
                 self._to_github_iso(batch_end)
             )
-            
-            batch_run_count = len(batch_runs)
-            
-            # If we hit the 1000 limit, subdivide this batch
-            if batch_run_count >= 1000:
-                time_diff = batch_end - batch_start
-                if time_diff.total_seconds() < 3600:  # Less than 1 hour
-                    print(f"Warning: Batch {batch_start.date()} to {batch_end.date()} has 1000+ runs in < 1 hour. Some runs may be missing.")
-                    all_raw_runs.extend(batch_runs)
-                else:
-                    # Split into two halves and reprocess
-                    midpoint = batch_start + time_diff / 2
-                    print(f"Batch {batch_start.date()} to {batch_end.date()} hit 1000-run limit. Subdividing into smaller windows...")
-                    batches_to_process.insert(0, (batch_start, midpoint))
-                    batches_to_process.insert(1, (midpoint, batch_end))
-                    batch_count -= 1  # Don't count this as a completed batch
-            else:
-                all_raw_runs.extend(batch_runs)
+            needs_subdivision = len(batch_runs) >= 1000
+            return (batch_idx, batch_runs, needs_subdivision, batch_start, batch_end)
         
+        # Phase 1a: Fetch all initial batches in parallel (limited to 5 workers for rate limiting)
+        batches_with_idx = [(i, start, end) for i, (start, end) in enumerate(initial_batches)]
+        batches_needing_subdivision = []
+        
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, total_initial_batches)) as executor:
+            futures = {executor.submit(fetch_batch, b): b for b in batches_with_idx}
+            completed = 0
+            
+            for future in concurrent.futures.as_completed(futures):
+                completed += 1
+                batch_idx, batch_runs, needs_subdivision, batch_start, batch_end = future.result()
+                
+                if progress_callback:
+                    progress_callback(0, 0, f"Fetched batch {completed}/{total_initial_batches} ({batch_start.date()} to {batch_end.date()})")
+                
+                if needs_subdivision:
+                    time_diff = batch_end - batch_start
+                    if time_diff.total_seconds() < 3600:
+                        print(f"Warning: Batch {batch_start.date()} to {batch_end.date()} has 1000+ runs in < 1 hour.")
+                        all_raw_runs.extend(batch_runs)
+                    else:
+                        print(f"Batch {batch_start.date()} to {batch_end.date()} hit 1000-run limit. Will subdivide...")
+                        batches_needing_subdivision.append((batch_start, batch_end))
+                else:
+                    all_raw_runs.extend(batch_runs)
+        
+        # Phase 1b: Handle subdivisions (recursive, but typically rare)
+        subdivision_round = 0
+        while batches_needing_subdivision:
+            subdivision_round += 1
+            print(f"[Phase 1b] Subdivision round {subdivision_round}: {len(batches_needing_subdivision)} batches to split...")
+            
+            new_batches = []
+            for batch_start, batch_end in batches_needing_subdivision:
+                time_diff = batch_end - batch_start
+                midpoint = batch_start + time_diff / 2
+                new_batches.append((len(new_batches), batch_start, midpoint))
+                new_batches.append((len(new_batches), midpoint, batch_end))
+            
+            batches_needing_subdivision = []
+            
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(5, len(new_batches))) as executor:
+                futures = {executor.submit(fetch_batch, b): b for b in new_batches}
+                
+                for future in concurrent.futures.as_completed(futures):
+                    batch_idx, batch_runs, needs_subdivision, batch_start, batch_end = future.result()
+                    
+                    if needs_subdivision:
+                        time_diff = batch_end - batch_start
+                        if time_diff.total_seconds() < 3600:
+                            print(f"Warning: Batch {batch_start.date()} to {batch_end.date()} has 1000+ runs in < 1 hour.")
+                            all_raw_runs.extend(batch_runs)
+                        else:
+                            batches_needing_subdivision.append((batch_start, batch_end))
+                    else:
+                        all_raw_runs.extend(batch_runs)
+        
+        phase1_duration = time.time() - phase1_start
         total_workflows = len(all_raw_runs)
-        print(f"Found {total_workflows} total workflow runs across {batch_count} batches.")
+        print(f"[Phase 1] Completed in {phase1_duration:.1f}s - Found {total_workflows} workflow runs.")
         
         if progress_callback:
             progress_callback(0, total_workflows, f"Found {total_workflows} workflows to process")
         
         # Process workflows with progress tracking using parallel execution for data fetching
-        import concurrent.futures
-        
         # Helper function to process a single run (fetch data only)
         def process_run_data(raw_run):
             try:
@@ -299,9 +342,10 @@ class DataCollector:
             runs_to_process.append(raw_run)
 
         print(f"    Skipped {total_runs_skipped} existing runs and {incomplete_runs_skipped} incomplete runs.")
-        print(f"    Processing {len(runs_to_process)} runs in parallel...")
+        print(f"[Phase 2] Processing {len(runs_to_process)} runs in parallel with 10 workers...")
+        phase2_start = time.time()
 
-        # Execute in parallel
+        # Execute in parallel with 10 workers (balanced for rate limiting)
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             # Create a map of future -> raw_run for error handling context
             future_to_run = {executor.submit(process_run_data, run): run for run in runs_to_process}
@@ -315,9 +359,15 @@ class DataCollector:
                 run_status = raw_run.get("status")
                 completed_count += 1
                 
-                # Invoke progress callback
+                # Invoke progress callback with ETA
                 if progress_callback:
-                    progress_callback(completed_count, total_to_process, f"Processing workflow {completed_count} of {total_to_process}")
+                    elapsed = time.time() - phase2_start
+                    if completed_count > 0:
+                        eta_seconds = (elapsed / completed_count) * (total_to_process - completed_count)
+                        eta_str = f" (ETA: {int(eta_seconds)}s)" if eta_seconds > 5 else ""
+                    else:
+                        eta_str = ""
+                    progress_callback(completed_count, total_to_process, f"Processing workflow {completed_count}/{total_to_process}{eta_str}")
                 
                 try:
                     result = future.result()
@@ -348,13 +398,27 @@ class DataCollector:
                 except Exception as e:
                     print(f"    Error saving run ID {run_id}: {e}")
 
-        print(f"\nTotal workflow runs collected and stored: {total_runs_collected}")
-        print(f"Total workflow runs updated: {total_runs_updated}")
-        print(f"Total workflow runs skipped (already in database): {total_runs_skipped}")
+        phase2_duration = time.time() - phase2_start
+        total_duration = phase1_duration + phase2_duration
+        
+        print(f"\n{'='*60}")
+        print(f"FETCH COMPLETE - Performance Summary")
+        print(f"{'='*60}")
+        print(f"Phase 1 (listing runs):     {phase1_duration:>6.1f}s")
+        print(f"Phase 2 (fetching details): {phase2_duration:>6.1f}s")
+        print(f"Total time:                 {total_duration:>6.1f}s")
+        print(f"{'='*60}")
+        print(f"Runs collected: {total_runs_collected}")
+        print(f"Runs updated:   {total_runs_updated}")
+        print(f"Runs skipped:   {total_runs_skipped}")
         if incomplete_runs_stored > 0:
-            print(f"Incomplete workflows stored (in_progress/queued): {incomplete_runs_stored}")
+            print(f"Incomplete stored: {incomplete_runs_stored}")
         if incomplete_runs_skipped > 0:
-            print(f"Incomplete workflows skipped (in_progress/queued): {incomplete_runs_skipped}")
+            print(f"Incomplete skipped: {incomplete_runs_skipped}")
+        if len(runs_to_process) > 0:
+            avg_per_run = phase2_duration / len(runs_to_process)
+            print(f"Avg time per run: {avg_per_run:.2f}s")
+        print(f"{'='*60}\n")
         
         if progress_callback:
             progress_callback(total_workflows, total_workflows, "Data collection complete")

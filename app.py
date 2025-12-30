@@ -22,19 +22,20 @@ MAX_JOB_EXECUTIONS_LIMIT = 1000
 
 # In a real app, you might manage the DB connection differently (e.g., per-request context)
 # For simplicity, we'll create a new instance per request or use a global one.
-DB_PATH = os.environ.get('DB_PATH', '/app/data/gha_metrics.db')
+# Use environment variable with fallback to local path for development
+DB_PATH = os.environ.get('DB_PATH', os.path.join(os.path.dirname(__file__), 'data', 'gha_metrics.db'))
+CONFIG_PATH = os.environ.get('CONFIG_PATH', os.path.join(os.path.dirname(__file__), 'data', 'config.json'))
 
 # Initialize global task manager for fetch operations
 task_manager = FetchTaskManager()
 
 # Initialize configuration manager for token management
-config_manager = ConfigManager("/app/data/config.json")
+config_manager = ConfigManager(CONFIG_PATH)
 
 def get_db():
     """Opens a new database connection."""
     if 'db' not in g:
-        db_path = os.getenv("DB_PATH", "/app/data/gha_metrics.db")
-        g.db = GHADatabase(db_path)
+        g.db = GHADatabase(DB_PATH)
         g.db.connect()
     return g.db
 
@@ -331,6 +332,51 @@ def remove_token():
             "error": f"Internal server error: {str(e)}",
             "error_type": "internal"
         }), 500
+
+@app.route('/api/rate-limit/status', methods=['GET'])
+def get_rate_limit_status():
+    """
+    API endpoint to get current GitHub API rate limit status.
+    
+    Returns:
+    - 200: Rate limit status info
+      - hour_start: ISO timestamp of current hour window
+      - request_count: Number of requests made this hour
+      - rate_limit_remaining: Last known remaining from GitHub API
+      - rate_limit_reset: Unix timestamp when limit resets
+      - warning_level: 'none', 'warning', or 'critical'
+      - is_throttled: Whether we're currently throttling
+      - throttle_until: Unix timestamp when throttle ends (if throttled)
+      - usage_percent_normal: Percentage of normal limit (5000) used
+      - usage_percent_enterprise: Percentage of enterprise limit (15000) used
+      - normal_limit: The normal token limit (5000)
+      - enterprise_limit: The enterprise token limit (15000)
+    """
+    try:
+        from rate_limit_tracker import get_rate_limit_tracker
+        
+        tracker = get_rate_limit_tracker(DB_PATH)
+        state = tracker.get_current_state()
+        
+        # Add limit constants to response
+        state['normal_limit'] = tracker.NORMAL_LIMIT
+        state['enterprise_limit'] = tracker.ENTERPRISE_LIMIT
+        
+        return jsonify(state), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": f"Failed to get rate limit status: {str(e)}",
+            "error_type": "internal",
+            "hour_start": None,
+            "request_count": 0,
+            "warning_level": "none",
+            "is_throttled": False,
+            "usage_percent_normal": 0,
+            "usage_percent_enterprise": 0,
+            "normal_limit": 5000,
+            "enterprise_limit": 15000
+        }), 200  # Return 200 with defaults so UI can still render
 
 @app.route('/api/fetch/preview', methods=['POST'])
 def fetch_preview():
@@ -1619,7 +1665,8 @@ def get_job_build_steps(job_name):
 
 @app.route('/api/jobs/flakiest', methods=['GET'])
 def get_flakiest_jobs():
-    with open("/app/data/debug.log", "a") as f:
+    debug_log_path = os.path.join(os.path.dirname(__file__), 'data', 'debug.log')
+    with open(debug_log_path, "a") as f:
         f.write("DEBUG: get_flakiest_jobs CALLED!\n")
     print("DEBUG: get_flakiest_jobs CALLED!", flush=True)
     """
