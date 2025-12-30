@@ -170,6 +170,26 @@ class GHADatabase:
             print(f"An error occurred during flakiness schema migration: {e}")
             self.conn.rollback()
             raise
+        
+        # Create rate limit tracking table
+        rate_limit_schema = """
+        CREATE TABLE IF NOT EXISTS rate_limit_tracking (
+            id INTEGER PRIMARY KEY CHECK (id = 1),  -- Singleton row
+            hour_start TEXT NOT NULL,               -- ISO format hour start (e.g., '2025-12-30T17:00:00Z')
+            request_count INTEGER NOT NULL DEFAULT 0,
+            rate_limit_remaining INTEGER,           -- From GitHub API header
+            rate_limit_reset INTEGER,               -- Unix timestamp from GitHub API header
+            last_updated TEXT NOT NULL              -- ISO timestamp of last update
+        );
+        """
+        try:
+            self.conn.executescript(rate_limit_schema)
+            self.conn.commit()
+            print("Rate limit tracking table created successfully.")
+        except sqlite3.Error as e:
+            print(f"An error occurred creating rate limit table: {e}")
+            self.conn.rollback()
+            raise
 
     def save_workflow_run(self, workflow_run: WorkflowRun, owner: str, repo: str, workflow_id: str):
         """
@@ -1202,6 +1222,102 @@ class GHADatabase:
         # Extract durations as a list of integers
         durations = [int(row['max_job_duration']) for row in rows if row['max_job_duration'] is not None]
         return durations
+
+    def get_rate_limit_state(self) -> Optional[Dict[str, Any]]:
+        """
+        Retrieves the current rate limit tracking state from the database.
+        
+        :return: A dict with hour_start, request_count, rate_limit_remaining, 
+                 rate_limit_reset, last_updated, or None if no record exists.
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+        
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM rate_limit_tracking WHERE id = 1")
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    
+    def update_rate_limit_state(self, hour_start: str, request_count: int, 
+                                rate_limit_remaining: Optional[int] = None,
+                                rate_limit_reset: Optional[int] = None):
+        """
+        Updates or inserts the rate limit tracking state.
+        
+        :param hour_start: ISO format hour start (e.g., '2025-12-30T17:00:00Z')
+        :param request_count: Number of requests made this hour
+        :param rate_limit_remaining: Optional remaining requests from GitHub API header
+        :param rate_limit_reset: Optional Unix timestamp from GitHub API header
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+        
+        last_updated = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO rate_limit_tracking (id, hour_start, request_count, rate_limit_remaining, rate_limit_reset, last_updated)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                hour_start = excluded.hour_start,
+                request_count = excluded.request_count,
+                rate_limit_remaining = COALESCE(excluded.rate_limit_remaining, rate_limit_remaining),
+                rate_limit_reset = COALESCE(excluded.rate_limit_reset, rate_limit_reset),
+                last_updated = excluded.last_updated
+        """, (hour_start, request_count, rate_limit_remaining, rate_limit_reset, last_updated))
+        self.conn.commit()
+    
+    def increment_rate_limit_count(self, count: int = 1, 
+                                   rate_limit_remaining: Optional[int] = None,
+                                   rate_limit_reset: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Atomically increments the rate limit request count and returns the new state.
+        Automatically resets if the hour has changed.
+        
+        :param count: Number of requests to add (default 1)
+        :param rate_limit_remaining: Optional remaining requests from GitHub API header
+        :param rate_limit_reset: Optional Unix timestamp from GitHub API header
+        :return: The updated rate limit state
+        """
+        if not self.conn:
+            raise ConnectionError("Database is not connected. Call connect() first.")
+        
+        current_hour = datetime.utcnow().replace(minute=0, second=0, microsecond=0)
+        current_hour_str = current_hour.strftime('%Y-%m-%dT%H:%M:%SZ')
+        last_updated = datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')
+        
+        cursor = self.conn.cursor()
+        
+        # Check if we need to reset for a new hour
+        existing = self.get_rate_limit_state()
+        
+        if existing and existing['hour_start'] == current_hour_str:
+            # Same hour, increment
+            new_count = existing['request_count'] + count
+        else:
+            # New hour, reset counter
+            new_count = count
+        
+        cursor.execute("""
+            INSERT INTO rate_limit_tracking (id, hour_start, request_count, rate_limit_remaining, rate_limit_reset, last_updated)
+            VALUES (1, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                hour_start = excluded.hour_start,
+                request_count = excluded.request_count,
+                rate_limit_remaining = COALESCE(excluded.rate_limit_remaining, rate_limit_remaining),
+                rate_limit_reset = COALESCE(excluded.rate_limit_reset, rate_limit_reset),
+                last_updated = excluded.last_updated
+        """, (current_hour_str, new_count, rate_limit_remaining, rate_limit_reset, last_updated))
+        self.conn.commit()
+        
+        return {
+            'hour_start': current_hour_str,
+            'request_count': new_count,
+            'rate_limit_remaining': rate_limit_remaining or (existing['rate_limit_remaining'] if existing else None),
+            'rate_limit_reset': rate_limit_reset or (existing['rate_limit_reset'] if existing else None),
+            'last_updated': last_updated
+        }
+
 
 if __name__ == '__main__':
     # Example usage: create and initialize the database

@@ -683,6 +683,206 @@
             font-size: 1.1em;
         }
 
+        /* Rate Limit Bar Styles */
+        .rate-limit-bar {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2c5282 100%);
+            border-radius: 8px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            flex-wrap: wrap;
+        }
+
+        .rate-limit-content {
+            flex: 1;
+            min-width: 300px;
+        }
+
+        .rate-limit-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+        }
+
+        .rate-limit-label {
+            color: #a0c4ff;
+            font-size: 0.85em;
+            font-weight: 500;
+        }
+
+        .rate-limit-count {
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        .rate-limit-enterprise {
+            color: #7eb8da;
+            font-size: 0.8em;
+        }
+
+        .rate-limit-progress-container {
+            width: 100%;
+        }
+
+        .rate-limit-progress {
+            position: relative;
+            height: 8px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+            overflow: visible;
+        }
+
+        .rate-limit-progress-bar {
+            height: 100%;
+            border-radius: 4px;
+            background: linear-gradient(90deg, #48bb78 0%, #38a169 100%);
+            transition: width 0.5s ease, background 0.3s ease;
+            width: 0%;
+        }
+
+        .rate-limit-progress-bar.warning {
+            background: linear-gradient(90deg, #ecc94b 0%, #d69e2e 100%);
+        }
+
+        .rate-limit-progress-bar.critical {
+            background: linear-gradient(90deg, #fc8181 0%, #e53e3e 100%);
+        }
+
+        .rate-limit-warning-line,
+        .rate-limit-critical-line {
+            position: absolute;
+            top: -3px;
+            bottom: -3px;
+            width: 2px;
+            border-radius: 1px;
+        }
+
+        .rate-limit-warning-line {
+            left: 80%;
+            background-color: #ecc94b;
+        }
+
+        .rate-limit-critical-line {
+            left: 95%;
+            background-color: #fc8181;
+        }
+
+        .rate-limit-labels {
+            position: relative;
+            font-size: 0.7em;
+            color: #7eb8da;
+            margin-top: 4px;
+            height: 16px;
+        }
+
+        .rate-limit-label-start {
+            position: absolute;
+            left: 0;
+        }
+
+        .rate-limit-label-end {
+            position: absolute;
+            right: 0;
+        }
+
+        .rate-limit-label-warning {
+            position: absolute;
+            left: 80%;
+            transform: translateX(-50%);
+            color: #ecc94b;
+        }
+
+        .rate-limit-label-critical {
+            position: absolute;
+            left: 95%;
+            transform: translateX(-50%);
+            color: #fc8181;
+        }
+
+        .rate-limit-status-badge {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .rate-limit-status-badge.status-ok {
+            background-color: rgba(72, 187, 120, 0.2);
+            color: #68d391;
+            border: 1px solid rgba(72, 187, 120, 0.4);
+        }
+
+        .rate-limit-status-badge.status-warning {
+            background-color: rgba(236, 201, 75, 0.2);
+            color: #ecc94b;
+            border: 1px solid rgba(236, 201, 75, 0.4);
+        }
+
+        .rate-limit-status-badge.status-critical {
+            background-color: rgba(252, 129, 129, 0.2);
+            color: #fc8181;
+            border: 1px solid rgba(252, 129, 129, 0.4);
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        .rate-limit-throttle-notice {
+            background-color: rgba(252, 129, 129, 0.15);
+            border: 1px solid rgba(252, 129, 129, 0.4);
+            border-radius: 6px;
+            padding: 8px 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fc8181;
+            font-size: 0.85em;
+            width: 100%;
+            margin-top: 8px;
+        }
+
+        .throttle-icon {
+            font-size: 1.2em;
+        }
+
+        /* Loading Spinner */
+        .btn-loading {
+            position: relative;
+            color: transparent !important;
+        }
+
+        .btn-loading::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
         /* Responsive Design */
         @media (max-width: 768px) {
             .modal-content {
@@ -746,6 +946,37 @@
                     Settings</button>
             </div>
         </header>
+
+        <!-- Rate Limit Status Bar -->
+        <div id="rate-limit-bar" class="rate-limit-bar">
+            <div class="rate-limit-content">
+                <div class="rate-limit-info">
+                    <span class="rate-limit-label">GitHub API Usage:</span>
+                    <span id="rate-limit-count" class="rate-limit-count">0 / 5,000</span>
+                    <span id="rate-limit-enterprise" class="rate-limit-enterprise">(or 0 / 15,000 enterprise)</span>
+                </div>
+                <div class="rate-limit-progress-container">
+                    <div id="rate-limit-progress" class="rate-limit-progress">
+                        <div id="rate-limit-progress-bar" class="rate-limit-progress-bar"></div>
+                        <div class="rate-limit-warning-line"></div>
+                        <div class="rate-limit-critical-line"></div>
+                    </div>
+                    <div class="rate-limit-labels">
+                        <span class="rate-limit-label-start">0%</span>
+                        <span class="rate-limit-label-warning">80%</span>
+                        <span class="rate-limit-label-critical">95%</span>
+                        <span class="rate-limit-label-end">100%</span>
+                    </div>
+                </div>
+            </div>
+            <div id="rate-limit-status-badge" class="rate-limit-status-badge status-ok">
+                <span id="rate-limit-status-text">OK</span>
+            </div>
+            <div id="rate-limit-throttle-notice" class="rate-limit-throttle-notice" style="display: none;">
+                <span class="throttle-icon">⏳</span>
+                <span id="throttle-message">Throttled - waiting for rate limit reset</span>
+            </div>
+        </div>
 
         <div class="control-panel">
             <div class="control-group">
@@ -2247,6 +2478,12 @@
                 const modal = document.getElementById('fetch-modal');
                 modal.style.display = 'none';
 
+                // Reset confirm button state
+                const confirmBtn = document.getElementById('confirm-fetch-btn');
+                confirmBtn.disabled = false;
+                confirmBtn.classList.remove('btn-loading');
+                confirmBtn.textContent = 'Start Fetch';
+
                 // Clear any error messages
                 hideError('config-error');
                 hideError('preview-error');
@@ -2371,10 +2608,15 @@
                 const startDate = document.getElementById('fetch-start-date').value;
                 const endDate = document.getElementById('fetch-end-date').value;
 
-                // Disable preview button
+                // Disable preview button and show loading spinner
                 const previewBtn = document.getElementById('preview-btn');
                 previewBtn.disabled = true;
+                previewBtn.classList.add('btn-loading');
                 previewBtn.textContent = 'Loading...';
+
+                // Log timing for performance measurement
+                const startTime = performance.now();
+                console.log(`[${new Date().toISOString()}] Preview API call started for ${owner}/${repo}/${workflowId}`);
 
                 try {
                     const response = await fetch('/api/fetch/preview', {
@@ -2390,6 +2632,10 @@
                             end_date: new Date(endDate).toISOString()
                         })
                     });
+
+                    const endTime = performance.now();
+                    const duration = ((endTime - startTime) / 1000).toFixed(2);
+                    console.log(`[${new Date().toISOString()}] Preview API call completed in ${duration}s (status: ${response.status})`);
 
                     const data = await response.json();
 
@@ -2456,6 +2702,7 @@
                     showError('config-error', errorMessage, errorType);
                 } finally {
                     previewBtn.disabled = false;
+                    previewBtn.classList.remove('btn-loading');
                     previewBtn.textContent = 'Preview';
                 }
             }
@@ -2469,10 +2716,15 @@
                 const startDate = document.getElementById('fetch-start-date').value;
                 const endDate = document.getElementById('fetch-end-date').value;
 
-                // Disable confirm button
+                // Disable confirm button and show loading spinner
                 const confirmBtn = document.getElementById('confirm-fetch-btn');
                 confirmBtn.disabled = true;
+                confirmBtn.classList.add('btn-loading');
                 confirmBtn.textContent = 'Starting...';
+
+                // Log timing for performance measurement
+                const startTime = performance.now();
+                console.log(`[${new Date().toISOString()}] Fetch start API call initiated for ${owner}/${repo}/${workflowId}`);
 
                 try {
                     const response = await fetch('/api/fetch/start', {
@@ -2488,6 +2740,10 @@
                             end_date: new Date(endDate).toISOString()
                         })
                     });
+
+                    const endTime = performance.now();
+                    const duration = ((endTime - startTime) / 1000).toFixed(2);
+                    console.log(`[${new Date().toISOString()}] Fetch start API call completed in ${duration}s (status: ${response.status})`);
 
                     const data = await response.json();
 
@@ -2526,6 +2782,7 @@
 
                     showError('preview-error', errorMessage, errorType);
                     confirmBtn.disabled = false;
+                    confirmBtn.classList.remove('btn-loading');
                     confirmBtn.textContent = 'Start Fetch';
                 }
             }
@@ -2551,6 +2808,9 @@
                 try {
                     const response = await fetch(`/api/fetch/status/${taskId}`);
                     const data = await response.json();
+
+                    // Also update rate limit status during fetch
+                    updateRateLimitStatus();
 
                     if (!response.ok) {
                         throw new Error(data.error || 'Failed to get task status');
@@ -2871,6 +3131,97 @@
                     expandTokenHelpSection();
                 }
             }
+
+            // Rate Limit Tracking
+            let rateLimitUpdateInterval = null;
+
+            async function updateRateLimitStatus() {
+                try {
+                    const response = await fetch('/api/rate-limit/status');
+                    const data = await response.json();
+
+                    const progressBar = document.getElementById('rate-limit-progress-bar');
+                    const countElement = document.getElementById('rate-limit-count');
+                    const enterpriseElement = document.getElementById('rate-limit-enterprise');
+                    const statusBadge = document.getElementById('rate-limit-status-badge');
+                    const statusText = document.getElementById('rate-limit-status-text');
+                    const throttleNotice = document.getElementById('rate-limit-throttle-notice');
+                    const throttleMessage = document.getElementById('throttle-message');
+
+                    // Update counts
+                    const normalLimit = data.normal_limit || 5000;
+                    const enterpriseLimit = data.enterprise_limit || 15000;
+                    const requestCount = data.request_count || 0;
+
+                    countElement.textContent = `${requestCount.toLocaleString()} / ${normalLimit.toLocaleString()}`;
+                    enterpriseElement.textContent = `(or ${requestCount.toLocaleString()} / ${enterpriseLimit.toLocaleString()} enterprise)`;
+
+                    // Update progress bar
+                    const usagePercent = Math.min(100, data.usage_percent_normal || 0);
+                    progressBar.style.width = `${usagePercent}%`;
+
+                    // Update colors based on warning level
+                    progressBar.classList.remove('warning', 'critical');
+                    statusBadge.classList.remove('status-ok', 'status-warning', 'status-critical');
+
+                    if (data.warning_level === 'critical') {
+                        progressBar.classList.add('critical');
+                        statusBadge.classList.add('status-critical');
+                        statusText.textContent = 'CRITICAL';
+                    } else if (data.warning_level === 'warning') {
+                        progressBar.classList.add('warning');
+                        statusBadge.classList.add('status-warning');
+                        statusText.textContent = 'WARNING';
+                    } else {
+                        statusBadge.classList.add('status-ok');
+                        statusText.textContent = 'OK';
+                    }
+
+                    // Update throttle notice
+                    if (data.is_throttled && data.throttle_until) {
+                        throttleNotice.style.display = 'flex';
+                        const resetTime = new Date(data.throttle_until * 1000);
+                        const timeRemaining = Math.max(0, Math.ceil((data.throttle_until - Date.now() / 1000) / 60));
+                        throttleMessage.textContent = `Throttled - API requests paused. Resumes at ${resetTime.toLocaleTimeString()} (~${timeRemaining} min)`;
+                    } else if (data.rate_limit_remaining !== null && data.rate_limit_remaining <= 100) {
+                        throttleNotice.style.display = 'flex';
+                        if (data.rate_limit_reset) {
+                            const resetTime = new Date(data.rate_limit_reset * 1000);
+                            throttleMessage.textContent = `Rate limit nearly exhausted (${data.rate_limit_remaining} remaining). Resets at ${resetTime.toLocaleTimeString()}`;
+                        } else {
+                            throttleMessage.textContent = `Rate limit nearly exhausted (${data.rate_limit_remaining} remaining)`;
+                        }
+                    } else {
+                        throttleNotice.style.display = 'none';
+                    }
+
+                } catch (error) {
+                    console.error('Failed to fetch rate limit status:', error);
+                }
+            }
+
+            function startRateLimitPolling() {
+                // Initial update
+                updateRateLimitStatus();
+                
+                // Poll every 5 seconds during fetch operations, every 30 seconds otherwise
+                if (rateLimitUpdateInterval) {
+                    clearInterval(rateLimitUpdateInterval);
+                }
+                rateLimitUpdateInterval = setInterval(updateRateLimitStatus, 10000);
+            }
+
+            function stopRateLimitPolling() {
+                if (rateLimitUpdateInterval) {
+                    clearInterval(rateLimitUpdateInterval);
+                    rateLimitUpdateInterval = null;
+                }
+            }
+
+            // Start polling when page loads
+            document.addEventListener('DOMContentLoaded', () => {
+                startRateLimitPolling();
+            });
 
             function showTokenMessage(message, type) {
                 const messageDiv = document.getElementById('token-config-message');

@@ -333,6 +333,51 @@ def remove_token():
             "error_type": "internal"
         }), 500
 
+@app.route('/api/rate-limit/status', methods=['GET'])
+def get_rate_limit_status():
+    """
+    API endpoint to get current GitHub API rate limit status.
+    
+    Returns:
+    - 200: Rate limit status info
+      - hour_start: ISO timestamp of current hour window
+      - request_count: Number of requests made this hour
+      - rate_limit_remaining: Last known remaining from GitHub API
+      - rate_limit_reset: Unix timestamp when limit resets
+      - warning_level: 'none', 'warning', or 'critical'
+      - is_throttled: Whether we're currently throttling
+      - throttle_until: Unix timestamp when throttle ends (if throttled)
+      - usage_percent_normal: Percentage of normal limit (5000) used
+      - usage_percent_enterprise: Percentage of enterprise limit (15000) used
+      - normal_limit: The normal token limit (5000)
+      - enterprise_limit: The enterprise token limit (15000)
+    """
+    try:
+        from rate_limit_tracker import get_rate_limit_tracker
+        
+        tracker = get_rate_limit_tracker(DB_PATH)
+        state = tracker.get_current_state()
+        
+        # Add limit constants to response
+        state['normal_limit'] = tracker.NORMAL_LIMIT
+        state['enterprise_limit'] = tracker.ENTERPRISE_LIMIT
+        
+        return jsonify(state), 200
+    
+    except Exception as e:
+        return jsonify({
+            "error": f"Failed to get rate limit status: {str(e)}",
+            "error_type": "internal",
+            "hour_start": None,
+            "request_count": 0,
+            "warning_level": "none",
+            "is_throttled": False,
+            "usage_percent_normal": 0,
+            "usage_percent_enterprise": 0,
+            "normal_limit": 5000,
+            "enterprise_limit": 15000
+        }), 200  # Return 200 with defaults so UI can still render
+
 @app.route('/api/fetch/preview', methods=['POST'])
 def fetch_preview():
     """

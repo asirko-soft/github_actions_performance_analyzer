@@ -1,9 +1,25 @@
 import requests
 import os
 import time
+from typing import Optional
+
+# Import rate limit tracker (lazy to avoid circular imports)
+_rate_limit_tracker = None
+
+def _get_tracker():
+    """Lazily get the rate limit tracker."""
+    global _rate_limit_tracker
+    if _rate_limit_tracker is None:
+        try:
+            from rate_limit_tracker import get_rate_limit_tracker
+            _rate_limit_tracker = get_rate_limit_tracker()
+        except ImportError:
+            pass
+    return _rate_limit_tracker
+
 
 class GitHubApiClient:
-    def __init__(self, token):
+    def __init__(self, token, db_path: Optional[str] = None):
         self.base_url = "https://api.github.com"
         self.headers = {
             "Authorization": f"token {token}",
@@ -11,25 +27,108 @@ class GitHubApiClient:
         }
         self.max_retries = 5
         self.initial_backoff_seconds = 1
+        self.db_path = db_path
+        
+        # Initialize tracker with db_path if provided
+        if db_path:
+            try:
+                from rate_limit_tracker import get_rate_limit_tracker
+                global _rate_limit_tracker
+                _rate_limit_tracker = get_rate_limit_tracker(db_path)
+            except ImportError:
+                pass
+
+    def _update_rate_limit_from_response(self, response):
+        """Update rate limit tracker from response headers."""
+        tracker = _get_tracker()
+        if not tracker:
+            return
+        
+        try:
+            remaining = response.headers.get('X-RateLimit-Remaining')
+            reset_time = response.headers.get('X-RateLimit-Reset')
+            
+            if remaining is not None and reset_time is not None:
+                remaining = int(remaining)
+                reset_time = int(reset_time)
+                
+                # Register the request and update GitHub's rate limit info
+                tracker.register_request(
+                    count=1,
+                    remaining=remaining,
+                    reset_timestamp=reset_time
+                )
+                
+                # Handle rate limit response
+                tracker.handle_rate_limit_response(remaining, reset_time)
+        except (ValueError, TypeError):
+            pass
+
+    def _wait_for_throttle(self):
+        """Wait if we're being throttled."""
+        tracker = _get_tracker()
+        if tracker:
+            # Check if we should pre-emptively throttle
+            tracker.check_and_throttle_if_needed()
+            # Wait if currently throttled
+            tracker.wait_if_throttled(timeout=1800)  # Max 30 min wait
 
     def _make_request(self, url, params=None):
+        rate_limit_retries = 0
+        max_rate_limit_retries = 3  # Extra retries specifically for rate limit edge cases
+        
         for attempt in range(self.max_retries):
             try:
+                # Wait if we're being throttled
+                self._wait_for_throttle()
+                
                 response = requests.get(url, headers=self.headers, params=params)
                 
+                # Update rate limit tracker from response
+                self._update_rate_limit_from_response(response)
+                
                 # Check for rate limit
-                if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers and int(response.headers['X-RateLimit-Remaining']) == 0:
-                    reset_time = int(response.headers['X-RateLimit-Reset'])
-                    sleep_duration = max(0, reset_time - time.time()) + 5 # Add 5 seconds buffer
-                    print(f"Rate limit exceeded. Sleeping for {sleep_duration:.2f} seconds until {time.ctime(reset_time)}.")
-                    time.sleep(sleep_duration)
-                    continue # Retry after sleeping
+                if response.status_code == 403 and 'X-RateLimit-Remaining' in response.headers:
+                    remaining = int(response.headers['X-RateLimit-Remaining'])
+                    
+                    if remaining == 0:
+                        reset_time = int(response.headers['X-RateLimit-Reset'])
+                        current_time = time.time()
+                        sleep_duration = max(0, reset_time - current_time) + 5  # Add 5 seconds buffer
+                        
+                        # Handle edge case: reset time has passed but rate limit not lifted
+                        if reset_time <= current_time:
+                            rate_limit_retries += 1
+                            if rate_limit_retries <= max_rate_limit_retries:
+                                # Incremental backoff: 15s, 30s, 60s
+                                backoff = 15 * (2 ** (rate_limit_retries - 1))
+                                print(f"Rate limit still active after reset time. Waiting {backoff}s before retry {rate_limit_retries}/{max_rate_limit_retries}...")
+                                time.sleep(backoff)
+                                continue
+                            else:
+                                print(f"Rate limit still active after {max_rate_limit_retries} retries. Waiting until next hour...")
+                                # Calculate time until next hour
+                                from datetime import datetime, timedelta
+                                now = datetime.utcnow()
+                                next_hour = (now + timedelta(hours=1)).replace(minute=0, second=5, microsecond=0)
+                                sleep_duration = (next_hour - now).total_seconds()
+                        
+                        # Start coordinated throttle
+                        tracker = _get_tracker()
+                        if tracker:
+                            tracker.start_throttle(sleep_duration)
+                        
+                        print(f"Rate limit exceeded. Throttling all workers for {sleep_duration:.2f} seconds until {time.ctime(reset_time)}.")
+                        
+                        # Wait for throttle to end
+                        self._wait_for_throttle()
+                        continue  # Retry after sleeping
 
                 response.raise_for_status()  # Raise an exception for HTTP errors (e.g., 4xx, 5xx)
                 return response
 
             except requests.exceptions.HTTPError as e:
-                if e.response.status_code in [500, 502, 503, 504]: # Server errors, often transient
+                if e.response.status_code in [500, 502, 503, 504]:  # Server errors, often transient
                     if attempt < self.max_retries - 1:
                         sleep_time = self.initial_backoff_seconds * (2 ** attempt)
                         print(f"Server error ({e.response.status_code}). Retrying in {sleep_time:.2f} seconds... (Attempt {attempt + 1}/{self.max_retries})")
